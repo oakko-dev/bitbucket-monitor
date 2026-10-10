@@ -28,14 +28,26 @@ test('mapPipeline maps completed and running pipelines', () => {
   assert.equal(mapPipeline('acme', 'web', { ...p, state: { name: 'COMPLETED', result: { name: 'SUCCESSFUL' } } }).latest_state, 'SUCCESSFUL');
 });
 
-test('upsert only replaces with a newer event, regardless of arrival order', () => {
-  const db = openDb(':memory:');
-  assert.equal(db.upsert(mapCommitStatus(payload('SUCCESSFUL', '2026-10-10T10:05:00Z'))), true);
-  assert.equal(db.upsert(mapCommitStatus(payload('INPROGRESS', '2026-10-10T10:00:00Z'))), false);
-  assert.equal(db.upsert(mapCommitStatus(payload('SUCCESSFUL', '2026-10-10T10:05:00Z'))), false);
-  assert.equal(db.listStatus()[0].state, 'SUCCESSFUL');
-  assert.equal(db.upsert(mapCommitStatus(payload('FAILED', '2026-10-10T10:06:00Z'))), true);
-  assert.equal(db.listStatus()[0].state, 'FAILED');
+// Runs against a real Postgres when TEST_DATABASE_URL is set. Each run uses a fresh repo name.
+test('upsert only replaces with a newer event, regardless of arrival order', { skip: !process.env.TEST_DATABASE_URL }, async () => {
+  const db = await openDb(process.env.TEST_DATABASE_URL);
+  const repo = `web-${crypto.randomUUID()}`;
+  const withRepo = (state, updated_on) => {
+    const p = payload(state, updated_on);
+    p.repository.full_name = `acme/${repo}`;
+    return mapCommitStatus(p);
+  };
+  const stateOf = async () => (await db.listStatus()).find((r) => r.repo === repo).state;
+  try {
+    assert.equal(await db.upsert(withRepo('SUCCESSFUL', '2026-10-10T10:05:00Z')), true);
+    assert.equal(await db.upsert(withRepo('INPROGRESS', '2026-10-10T10:00:00Z')), false);
+    assert.equal(await db.upsert(withRepo('SUCCESSFUL', '2026-10-10T10:05:00Z')), false);
+    assert.equal(await stateOf(), 'SUCCESSFUL');
+    assert.equal(await db.upsert(withRepo('FAILED', '2026-10-10T10:06:00Z')), true);
+    assert.equal(await stateOf(), 'FAILED');
+  } finally {
+    await db.close();
+  }
 });
 
 test('verifySignature accepts valid HMAC and rejects tampering', () => {

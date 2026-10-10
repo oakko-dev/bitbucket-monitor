@@ -12,7 +12,7 @@ export function createReconciler({ client, db, workspace, log = console }) {
         try {
           for (const pipeline of await client.latestPipelines(workspace, slug)) {
             const row = mapPipeline(workspace, slug, pipeline);
-            if (row) db.upsert(row);
+            if (row) await db.upsert(row);
           }
         } catch (err) {
           log.error(`reconcile ${slug}: ${err.message}`);

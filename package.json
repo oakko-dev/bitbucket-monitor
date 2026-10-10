@@ -3,13 +3,15 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=24" },
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "start": "node src/server.js",
     "test": "node --test"
   },
   "dependencies": {
-    "better-sqlite3": "13.0.3",
-    "express": "5.3.0"
+    "express": "5.3.0",
+    "pg": "^8.23.1"
   }
 }

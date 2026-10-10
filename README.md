@@ -10,7 +10,9 @@ Deploy status dashboard for a Bitbucket Cloud workspace. Webhooks for commit sta
    - `BITBUCKET_ACCESS_TOKEN` (required): the token from step 1
    - `WEBHOOK_PATH_SECRET` (required): a long random string, e.g. `openssl rand -hex 24`
    - `BITBUCKET_WEBHOOK_SECRET` (optional): when set, every delivery must carry a valid `X-Hub-Signature` HMAC-SHA256
-   - `PORT` (default 3000), `DB_PATH` (default `./data/status.sqlite`), `RECONCILE_INTERVAL_MS` (default 600000)
+   - `DATABASE_URL` (required): a Postgres connection string
+   - `CRON_SECRET` (Vercel only): Vercel Cron sends it to `/api/reconcile`
+   - `PORT` (default 3000), `RECONCILE_INTERVAL_MS` (default 600000)
 3. For each repo, add a webhook under Repository settings > Webhooks:
    - URL: `https://<host>/webhooks/bitbucket/<WEBHOOK_PATH_SECRET>`
    - Triggers: Commit status created, Commit status updated
@@ -32,7 +34,32 @@ Run the tests with `npm test`.
 
 ```sh
 docker build -t bitbucket-monitor .
-docker run -d -p 3000:3000 --env-file .env -v bitbucket-monitor-data:/app/data bitbucket-monitor
+docker run -d -p 3000:3000 --env-file .env bitbucket-monitor
 ```
 
-The image does not contain `.env`. Pass the variables at runtime.
+The image does not contain `.env`. Pass the variables at runtime. Data lives in `DATABASE_URL`, so the container keeps no state.
+
+## Vercel
+
+Vercel functions cannot keep local files, so the data lives in Postgres.
+
+1. In Vercel, add the **Neon** (Postgres) integration from the Marketplace. It sets `DATABASE_URL`.
+2. Add `BITBUCKET_WORKSPACE`, `BITBUCKET_ACCESS_TOKEN`, `WEBHOOK_PATH_SECRET`, and `CRON_SECRET` in the project's environment variables.
+3. Deploy. `vercel.json` schedules `/api/reconcile` every 10 minutes.
+
+Vercel Cron runs every 10 minutes only on the Pro plan. Hobby allows one run per day, so the poll runs less often there. Webhooks still update the page in real time.
+
+## Add the webhook to every repo
+
+`scripts/add-webhooks.mjs` creates the commit-status webhook on each repo in the workspace. It skips repos that already have the URL. It runs as a dry run unless you pass `--apply`.
+
+```bash
+BITBUCKET_WORKSPACE=<workspace> \
+BITBUCKET_ACCESS_TOKEN=<token> \
+WEBHOOK_URL=https://<your-host>/webhooks/bitbucket/<WEBHOOK_PATH_SECRET> \
+node scripts/add-webhooks.mjs
+```
+
+Check the dry-run output, then add `--apply` to the same command.
+
+To limit the run to some repos, set `REPO_FILTER` to a case-insensitive regex matched against the repo slug. For example, `REPO_FILTER='^wtg-'` covers only repos starting with `wtg-`.
