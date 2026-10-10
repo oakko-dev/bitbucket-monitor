@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bitbucket Connection Check</title>
+<style>
+  :root { --bg: #f5f6f8; --surface: #fff; --text: #111827; --muted: #5b6472; --ok: #15803d; --fail: #b42318; --focus: #1d4ed8; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg: #0e1116; --surface: #161b22; --text: #e6edf3; --muted: #9aa4b2; --ok: #3fb950; --fail: #ff6b63; --focus: #79b8ff; }
+  }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, sans-serif; }
+  main { max-width: 560px; margin: 0 auto; padding: 24px 16px; }
+  h1 { font-size: 18px; margin: 0 0 16px; }
+  .card { background: var(--surface); border: 1px solid #dfe3ea; border-radius: 8px; padding: 16px; }
+  #result { font-weight: 600; margin: 0 0 8px; }
+  #result.ok { color: var(--ok); }
+  #result.fail { color: var(--fail); }
+  #detail { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; margin: 0 0 12px; }
+  button { min-height: 44px; padding: 0 16px; border-radius: 6px; border: 1px solid var(--focus); background: var(--focus); color: #fff; font: inherit; cursor: pointer; }
+  button:disabled { opacity: .6; cursor: wait; }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Bitbucket connection check</h1>
+  <div class="card">
+    <p id="result" role="status" aria-live="polite">Checking…</p>
+    <p id="detail"></p>
+    <button id="recheck" type="button">Recheck</button>
+  </div>
+</main>
+<script>
+  const secret = location.pathname.split('/').filter(Boolean).pop();
+  const result = document.getElementById('result');
+  const detail = document.getElementById('detail');
+  const button = document.getElementById('recheck');
+
+  async function check() {
+    button.disabled = true;
+    result.className = '';
+    result.textContent = 'Checking…';
+    detail.textContent = '';
+    try {
+      const res = await fetch(`/api/check/${encodeURIComponent(secret)}`, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (data.ok) {
+        result.className = 'ok';
+        result.textContent = 'Connected to Bitbucket';
+        detail.textContent = `Workspace "${data.workspace}" is reachable. Repos found: ${data.repos_found}.`;
+      } else {
+        result.className = 'fail';
+        result.textContent = 'Not connected';
+        detail.textContent = `Workspace "${data.workspace}": ${data.error}`;
+      }
+    } catch (err) {
+      result.className = 'fail';
+      result.textContent = 'Check failed';
+      detail.textContent = `Could not reach this server (${err.message}).`;
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  button.addEventListener('click', check);
+  check();
+</script>
+</body>
+</html>

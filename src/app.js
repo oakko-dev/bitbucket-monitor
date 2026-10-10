@@ -4,6 +4,7 @@ import express from 'express';
 import { COMMIT_STATUS_EVENTS, mapCommitStatus, verifySignature } from './ingest.js';
 import { loadConfig } from './config.js';
 import { openDb } from './db.js';
+import { createClient } from './bitbucket.js';
 
 function safeEqual(a, b) {
   const ha = crypto.createHash('sha256').update(String(a)).digest();
@@ -11,7 +12,7 @@ function safeEqual(a, b) {
   return crypto.timingSafeEqual(ha, hb);
 }
 
-export function createApp({ db, webhookSecret, webhookPathSecret, log = console }) {
+export function createApp({ db, bitbucket, workspace, webhookSecret, webhookPathSecret, log = console }) {
   const app = express();
   app.use(express.json({ limit: '1mb', verify: (req, _res, buf) => { req.rawBody = buf; } }));
 
@@ -34,6 +35,16 @@ export function createApp({ db, webhookSecret, webhookPathSecret, log = console 
   app.get('/api/status', (_req, res) => res.json(db.listStatus()));
   app.get('/', (_req, res) => res.sendFile(path.join(import.meta.dirname, 'public', 'index.html')));
 
+  // Gated by the path secret so the workspace name is not public.
+  app.get('/check/:secret', (req, res) => {
+    if (!safeEqual(req.params.secret, webhookPathSecret)) return res.sendStatus(403);
+    res.sendFile(path.join(import.meta.dirname, 'public', 'check.html'));
+  });
+  app.get('/api/check/:secret', async (req, res) => {
+    if (!safeEqual(req.params.secret, webhookPathSecret)) return res.sendStatus(403);
+    res.json(await bitbucket.checkWorkspace(workspace));
+  });
+
   return app;
 }
 
@@ -42,6 +53,8 @@ export function createApp({ db, webhookSecret, webhookPathSecret, log = console 
 const config = loadConfig();
 export default createApp({
   db: openDb(config.dbPath),
+  bitbucket: createClient({ accessToken: config.accessToken }),
+  workspace: config.workspace,
   webhookSecret: config.webhookSecret,
   webhookPathSecret: config.webhookPathSecret,
 });

@@ -16,6 +16,14 @@ export function createClient({ accessToken, fetchImpl = fetch, sleep = (ms) => n
   }
 
   return {
+    async checkWorkspace(workspace) {
+      try {
+        const page = await getJson(`${API}/repositories/${encodeURIComponent(workspace)}?pagelen=1`);
+        return { ok: true, workspace, repos_found: page.size ?? (page.values ?? []).length };
+      } catch (err) {
+        return { ok: false, workspace, error: err.message };
+      }
+    },
     async listRepoSlugs(workspace) {
       const slugs = [];
       let url = `${API}/repositories/${encodeURIComponent(workspace)}?pagelen=100`;
