@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deploy Status</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --surface: #ffffff; --text: #111827; --muted: #5b6472; --line: #dfe3ea;
+    --ok: #15803d; --ok-bg: #e7f6ec;
+    --fail: #b42318; --fail-bg: #fdecea;
+    --run: #8a5a00; --run-bg: #fdf3dc;
+    --stop: #4b5563; --stop-bg: #eceff3;
+    --focus: #1d4ed8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0e1116; --surface: #161b22; --text: #e6edf3; --muted: #9aa4b2; --line: #2a313c;
+      --ok: #3fb950; --ok-bg: #12301c;
+      --fail: #ff6b63; --fail-bg: #3a1716;
+      --run: #e3b341; --run-bg: #33270e;
+      --stop: #c3cad4; --stop-bg: #252b35;
+      --focus: #79b8ff;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e1116; --surface: #161b22; --text: #e6edf3; --muted: #9aa4b2; --line: #2a313c;
+    --ok: #3fb950; --ok-bg: #12301c;
+    --fail: #ff6b63; --fail-bg: #3a1716;
+    --run: #e3b341; --run-bg: #33270e;
+    --stop: #c3cad4; --stop-bg: #252b35;
+    --focus: #79b8ff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-variant-numeric: tabular-nums;
+  }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  main { max-width: 1120px; margin: 0 auto; padding: 16px 16px 40px; }
+
+  header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; margin-bottom: 12px; }
+  h1 { font-size: 18px; font-weight: 650; margin: 0; }
+  #updated { color: var(--muted); font-size: 12px; }
+
+  #error {
+    display: none; margin-bottom: 12px; padding: 8px 12px; border-radius: 6px;
+    background: var(--fail-bg); color: var(--fail); font-weight: 500;
+  }
+
+  .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+  .stat {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--surface); color: inherit; font: inherit; text-align: left; cursor: pointer;
+  }
+  .stat:hover { border-color: var(--muted); }
+  .stat .n { font-size: 20px; font-weight: 650; }
+  .stat .l { color: var(--muted); font-size: 12px; }
+  .stat[aria-pressed="true"] { border-color: var(--focus); box-shadow: inset 0 0 0 1px var(--focus); }
+  .stat.FAILED .n { color: var(--fail); }
+  .stat.INPROGRESS .n { color: var(--run); }
+  .stat.SUCCESSFUL .n { color: var(--ok); }
+
+  .toolbar { margin-bottom: 8px; }
+  .toolbar input {
+    width: 100%; min-height: 40px; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--line);
+    background: var(--surface); color: var(--text); font: inherit;
+  }
+
+  .table { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .head, .row {
+    display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1.4fr) 112px 120px 96px;
+    gap: 12px; align-items: center; padding: 0 12px 0 14px;
+  }
+  .head {
+    min-height: 32px; background: var(--bg); border-bottom: 1px solid var(--line);
+    color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+  }
+  .row { position: relative; min-height: 48px; padding-top: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  .row:last-child { border-bottom: 0; }
+  .row::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--stop); }
+  .row.SUCCESSFUL::before { background: var(--ok); }
+  .row.FAILED::before { background: var(--fail); }
+  .row.FAILED { background: var(--fail-bg); }
+  .row.INPROGRESS::before { background: var(--run); }
+
+  .repo { font-weight: 600; overflow-wrap: anywhere; }
+  .branch { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; overflow-wrap: anywhere; }
+  .env { color: var(--muted); }
+  .time { color: var(--muted); white-space: nowrap; }
+  .muted { color: var(--muted); }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 4px;
+    font-size: 12px; font-weight: 650; white-space: nowrap; background: var(--stop-bg); color: var(--stop);
+  }
+  .badge svg { width: 14px; height: 14px; flex: none; }
+  .badge.SUCCESSFUL { background: var(--ok-bg); color: var(--ok); }
+  .badge.FAILED { background: var(--fail); color: #fff; }
+  .badge.INPROGRESS { background: var(--run-bg); color: var(--run); }
+
+  .empty { padding: 28px 16px; text-align: center; color: var(--muted); }
+
+  @media (max-width: 720px) {
+    .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .head { display: none; }
+    .row {
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas: "repo badge" "branch branch" "env time";
+      row-gap: 4px; padding-top: 10px; padding-bottom: 10px;
+    }
+    .row .repo { grid-area: repo; }
+    .row .badge { grid-area: badge; justify-self: end; }
+    .row .branch { grid-area: branch; }
+    .row .env { grid-area: env; }
+    .row .time { grid-area: time; justify-self: end; font-size: 12px; }
+    .row .env::before { content: "env: "; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Deploy Status</h1>
+    <span id="updated" aria-live="polite">Loading…</span>
+  </header>
+  <div id="error" role="alert"></div>
+
+  <div class="stats" role="group" aria-label="Filter by state">
+    <button class="stat" data-filter="ALL" aria-pressed="true"><span class="l">All</span><span class="n" id="c-all">0</span></button>
+    <button class="stat FAILED" data-filter="FAILED" aria-pressed="false"><span class="l">Failed</span><span class="n" id="c-FAILED">0</span></button>
+    <button class="stat INPROGRESS" data-filter="INPROGRESS" aria-pressed="false"><span class="l">Running</span><span class="n" id="c-INPROGRESS">0</span></button>
+    <button class="stat SUCCESSFUL" data-filter="SUCCESSFUL" aria-pressed="false"><span class="l">Passed</span><span class="n" id="c-SUCCESSFUL">0</span></button>
+  </div>
+
+  <div class="toolbar">
+    <input id="search" type="search" placeholder="Filter by repo, branch, or environment" aria-label="Filter by repo, branch, or environment">
+  </div>
+
+  <section class="table" aria-label="Latest pipeline state per repo and branch">
+    <div class="head" aria-hidden="true"><div>Repo</div><div>Branch</div><div>State</div><div>Environment</div><div>Updated</div></div>
+    <div id="list"></div>
+  </section>
+</main>
+<script>
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const LABELS = { SUCCESSFUL: 'Passed', FAILED: 'Failed', INPROGRESS: 'Running', STOPPED: 'Stopped' };
+  // Text plus shape, so state is not carried by color alone.
+  const ICONS = {
+    SUCCESSFUL: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M6.2 11.3 2.9 8l1.1-1.1 2.2 2.2 5.8-5.8 1.1 1.1z"/></svg>',
+    FAILED: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M4 2.6 8 6.6l4-4 1.4 1.4-4 4 4 4L12 13.4l-4-4-4 4L2.6 12l4-4-4-4z"/></svg>',
+    INPROGRESS: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="6 3"/></svg>',
+    STOPPED: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" fill="currentColor"/></svg>',
+  };
+  // Failures first, then running, then stopped and passed. Newest first within a group.
+  const RANK = { FAILED: 0, INPROGRESS: 1, STOPPED: 2, SUCCESSFUL: 3 };
+
+  let rows = [];
+  let stateFilter = 'ALL';
+  let query = '';
+
+  function ago(iso) {
+    const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+    if (Number.isNaN(s)) return '';
+    if (s < 60) return 'just now';
+    if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+    if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+    return `${Math.floor(s / 86400)}d ago`;
+  }
+
+  function visible() {
+    const q = query.trim().toLowerCase();
+    return rows
+      .filter((r) => stateFilter === 'ALL' || r.state === stateFilter)
+      .filter((r) => !q || [r.repo, r.branch, r.environment].some((f) => String(f ?? '').toLowerCase().includes(q)))
+      .sort((a, b) => (RANK[a.state] ?? 9) - (RANK[b.state] ?? 9) || String(b.updated_at).localeCompare(String(a.updated_at)));
+  }
+
+  function render() {
+    const counts = { ALL: rows.length, FAILED: 0, INPROGRESS: 0, SUCCESSFUL: 0 };
+    rows.forEach((r) => { if (r.state in counts) counts[r.state]++; });
+    document.getElementById('c-all').textContent = counts.ALL;
+    document.getElementById('c-FAILED').textContent = counts.FAILED;
+    document.getElementById('c-INPROGRESS').textContent = counts.INPROGRESS;
+    document.getElementById('c-SUCCESSFUL').textContent = counts.SUCCESSFUL;
+
+    const list = visible();
+    const el = document.getElementById('list');
+    if (list.length === 0) {
+      el.innerHTML = `<div class="empty">${rows.length === 0 ? 'No deploys yet. Waiting for the first pipeline event.' : 'Nothing matches this filter.'}</div>`;
+      return;
+    }
+    el.innerHTML = list.map((r) => {
+      const label = LABELS[r.state] ?? r.state;
+      const stamp = new Date(r.updated_at).toLocaleString();
+      return `<article class="row ${esc(r.state)}">` +
+        `<div class="repo">${esc(r.repo)}</div>` +
+        `<div class="branch">${esc(r.branch)}</div>` +
+        `<div><span class="badge ${esc(r.state)}">${ICONS[r.state] ?? ''}${esc(label)}</span></div>` +
+        `<div class="env">${esc(r.environment)}</div>` +
+        `<div class="time" title="${esc(stamp)}"><time datetime="${esc(r.updated_at)}">${esc(ago(r.updated_at))}</time></div>` +
+      `</article>`;
+    }).join('');
+  }
+
+  async function load() {
+    const error = document.getElementById('error');
+    try {
+      const res = await fetch('/api/status', { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      rows = await res.json();
+      error.style.display = 'none';
+      document.getElementById('updated').textContent = `Updated ${new Date().toLocaleTimeString()} · every 15 s`;
+      render();
+    } catch (err) {
+      error.textContent = `Could not refresh (${err.message}). Showing the last data loaded.`;
+      error.style.display = 'block';
+    }
+  }
+
+  document.querySelectorAll('.stat').forEach((btn) => btn.addEventListener('click', () => {
+    stateFilter = btn.dataset.filter;
+    document.querySelectorAll('.stat').forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
+    render();
+  }));
+  document.getElementById('search').addEventListener('input', (e) => { query = e.target.value; render(); });
+
+  load();
+  setInterval(load, 15000);
+  setInterval(render, 30000);
+</script>
+</body>
+</html>
