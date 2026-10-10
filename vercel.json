@@ -2,10 +2,10 @@
   "functions": {
     "src/app.js": {
       "includeFiles": "src/public/**",
-      "maxDuration": 300
+      "maxDuration": 60
     }
   },
   "crons": [
-    { "path": "/api/reconcile", "schedule": "*/10 * * * *" }
+    { "path": "/api/reconcile", "schedule": "0 0 * * *" }
   ]
 }
