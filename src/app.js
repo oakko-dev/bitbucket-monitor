@@ -2,6 +2,8 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import express from 'express';
 import { COMMIT_STATUS_EVENTS, mapCommitStatus, verifySignature } from './ingest.js';
+import { loadConfig } from './config.js';
+import { openDb } from './db.js';
 
 function safeEqual(a, b) {
   const ha = crypto.createHash('sha256').update(String(a)).digest();
@@ -34,3 +36,12 @@ export function createApp({ db, webhookSecret, webhookPathSecret, log = console 
 
   return app;
 }
+
+// Vercel loads this module and expects an Express app as its default export.
+// Local runs go through server.js, which calls createApp itself.
+const config = loadConfig();
+export default createApp({
+  db: openDb(config.dbPath),
+  webhookSecret: config.webhookSecret,
+  webhookPathSecret: config.webhookPathSecret,
+});
