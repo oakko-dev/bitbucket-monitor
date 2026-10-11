@@ -69,3 +69,10 @@ To limit the run to some repos, set `REPO_FILTER` to a case-insensitive regex ma
 The page lists every repo in the workspace. A repo with no pipeline run shows "No runs yet". The header shows when the last webhook arrived and when the last sync finished.
 
 **Sync now** runs the same sync as the cron. The page asks for the `CRON_SECRET` once per browser tab and keeps it only for that tab. A wrong key returns 401. If Bitbucket cannot return the repo list, the sync returns 502 and the page says it failed.
+
+## Alerts, history, and branches
+
+- **Branches.** Each sync checks every branch that had a commit in the last `RECENT_BRANCH_DAYS` (default 30). Older branches are skipped to keep the sync within the time limit.
+- **Alerts.** Set `SLACK_WEBHOOK_URL` to a Slack incoming webhook. A message posts when a branch changes to FAILED from another state. A repeat FAILED does not post again.
+- **History.** Click a repo name on the page to see its last 20 recorded state changes. Only changes that were applied are recorded.
+- **Rejected webhooks.** A delivery with a wrong path or signature returns 403 or 401. The page shows the most recent rejection and its reason, so a misconfigured webhook is visible.

@@ -17,5 +17,7 @@ export function loadConfig() {
     webhookPathSecret: required('WEBHOOK_PATH_SECRET'),
     cronSecret: process.env.CRON_SECRET || null,
     reconcileIntervalMs: Number(process.env.RECONCILE_INTERVAL_MS ?? 600000),
+    recentBranchDays: Number(process.env.RECENT_BRANCH_DAYS ?? 30),
+    slackWebhookUrl: process.env.SLACK_WEBHOOK_URL || null,
   };
 }

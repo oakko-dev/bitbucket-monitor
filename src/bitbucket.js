@@ -24,6 +24,27 @@ export function createClient({ accessToken, fetchImpl = fetch, sleep = (ms) => n
         return { ok: false, workspace, error: err.message };
       }
     },
+    // Returns { name, date } for each branch. date is the commit date, used to skip long-dead branches.
+    async listBranches(workspace, slug) {
+      const branches = [];
+      let url = `${API}/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(slug)}/refs/branches?pagelen=100`;
+      while (url) {
+        const page = await getJson(url);
+        for (const branch of page.values ?? []) {
+          branches.push({ name: branch.name, date: branch.target?.date ?? null });
+        }
+        url = page.next;
+      }
+      return branches;
+    },
+    // Filters by branch name, so each branch gets its own latest pipeline.
+    async latestPipelineForBranch(workspace, slug, branch) {
+      const page = await getJson(
+        `${API}/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(slug)}/pipelines/` +
+          `?sort=-created_on&pagelen=1&target.ref_name=${encodeURIComponent(branch)}`,
+      );
+      return page.values ?? [];
+    },
     async listRepoSlugs(workspace) {
       const slugs = [];
       let url = `${API}/repositories/${encodeURIComponent(workspace)}?pagelen=100`;
@@ -33,12 +54,6 @@ export function createClient({ accessToken, fetchImpl = fetch, sleep = (ms) => n
         url = page.next;
       }
       return slugs;
-    },
-    async latestPipelines(workspace, slug) {
-      const page = await getJson(
-        `${API}/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(slug)}/pipelines/?sort=-created_on&pagelen=1`,
-      );
-      return page.values ?? [];
     },
   };
 }

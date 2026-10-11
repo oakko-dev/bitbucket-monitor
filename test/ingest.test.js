@@ -38,13 +38,14 @@ test('upsert only replaces with a newer event, regardless of arrival order', { s
     return mapCommitStatus(p);
   };
   const stateOf = async () => (await db.listStatus('acme')).find((r) => r.repo === repo).state;
+  const applied = async (r) => (await db.upsert(r)).applied;
   try {
     await db.addRepos('acme', [repo]);
-    assert.equal(await db.upsert(withRepo('SUCCESSFUL', '2026-10-10T10:05:00Z')), true);
-    assert.equal(await db.upsert(withRepo('INPROGRESS', '2026-10-10T10:00:00Z')), false);
-    assert.equal(await db.upsert(withRepo('SUCCESSFUL', '2026-10-10T10:05:00Z')), false);
+    assert.equal(await applied(withRepo('SUCCESSFUL', '2026-10-10T10:05:00Z')), true);
+    assert.equal(await applied(withRepo('INPROGRESS', '2026-10-10T10:00:00Z')), false);
+    assert.equal(await applied(withRepo('SUCCESSFUL', '2026-10-10T10:05:00Z')), false);
     assert.equal(await stateOf(), 'SUCCESSFUL');
-    assert.equal(await db.upsert(withRepo('FAILED', '2026-10-10T10:06:00Z')), true);
+    assert.equal(await applied(withRepo('FAILED', '2026-10-10T10:06:00Z')), true);
     assert.equal(await stateOf(), 'FAILED');
   } finally {
     await db.close();

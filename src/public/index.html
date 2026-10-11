@@ -49,6 +49,14 @@
   }
   #sync:disabled { opacity: .6; cursor: wait; }
   #syncNote { color: var(--muted); font-size: 12px; }
+  .bad { color: var(--fail); font-weight: 600; }
+  .repo { cursor: pointer; }
+  .repo:hover { text-decoration: underline; }
+  #history { margin-top: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+  #history h2 { font-size: 14px; margin: 0 0 8px; }
+  #history table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  #history th, #history td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+  #history th { color: var(--muted); font-weight: 600; }
 
   #error {
     display: none; margin-bottom: 12px; padding: 8px 12px; border-radius: 6px;
@@ -136,6 +144,7 @@
     <div class="meta" aria-live="polite">
       <span id="lastWebhook">Last webhook: …</span>
       <span id="lastSync">Last sync: …</span>
+      <span id="rejected" class="bad" hidden></span>
       <span id="updated">Loading…</span>
       <button id="sync" type="button">Sync now</button>
       <span id="syncNote"></span>
@@ -157,6 +166,11 @@
   <section class="table" aria-label="Latest pipeline state per repo and branch">
     <div class="head" aria-hidden="true"><div>Repo</div><div>Branch</div><div>State</div><div>Environment</div><div>Updated</div></div>
     <div id="list"></div>
+  </section>
+
+  <section id="history" hidden aria-live="polite">
+    <h2 id="historyTitle"></h2>
+    <div id="historyBody"></div>
   </section>
 </main>
 <script>
@@ -217,7 +231,7 @@
         ? `<time datetime="${esc(r.updated_at)}">${esc(ago(r.updated_at))}</time>`
         : '<span class="muted">—</span>';
       return `<article class="row ${esc(state)}">` +
-        `<div class="repo">${esc(r.repo)}</div>` +
+        `<div class="repo" data-repo="${esc(r.repo)}" title="Show recent runs">${esc(r.repo)}</div>` +
         `<div class="branch">${esc(r.branch ?? '—')}</div>` +
         `<div><span class="badge ${esc(state)}">${state === 'NONE' ? '' : (ICONS[state] ?? '')}${esc(LABELS[state] ?? state)}</span></div>` +
         `<div class="env">${esc(r.environment ?? '')}</div>` +
@@ -233,7 +247,43 @@
     };
     set('lastWebhook', 'Last webhook', meta.last_webhook_at);
     set('lastSync', 'Last sync', meta.last_sync_at);
+    const rejected = document.getElementById('rejected');
+    if (meta.last_rejected_at) {
+      rejected.hidden = false;
+      rejected.textContent = `Webhook rejected ${ago(meta.last_rejected_at)}: ${meta.last_rejected_reason ?? 'unknown reason'}`;
+    } else {
+      rejected.hidden = true;
+    }
   }
+
+  // Shows the last 20 state changes for one repo, across its branches.
+  async function showHistory(repo) {
+    const section = document.getElementById('history');
+    document.getElementById('historyTitle').textContent = `Recent runs: ${repo}`;
+    const body = document.getElementById('historyBody');
+    body.textContent = 'Loading…';
+    section.hidden = false;
+    try {
+      const res = await fetch(`/api/history/${encodeURIComponent(repo)}`, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const entries = await res.json();
+      if (entries.length === 0) {
+        body.textContent = 'No recorded runs yet.';
+        return;
+      }
+      body.innerHTML = '<table><thead><tr><th>Branch</th><th>State</th><th>Environment</th><th>When</th></tr></thead><tbody>' +
+        entries.map((e) => `<tr><td>${esc(e.branch)}</td><td>${esc(LABELS[e.state] ?? e.state)}</td>` +
+          `<td>${esc(e.environment)}</td><td><time datetime="${esc(e.updated_at)}">${esc(ago(e.updated_at))}</time></td></tr>`).join('') +
+        '</tbody></table>';
+    } catch (err) {
+      body.textContent = `Could not load history (${err.message}).`;
+    }
+  }
+
+  document.getElementById('list').addEventListener('click', (e) => {
+    const repo = e.target.closest('.repo');
+    if (repo) showHistory(repo.dataset.repo);
+  });
 
   async function loadMeta() {
     try {

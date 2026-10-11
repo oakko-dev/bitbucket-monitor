@@ -6,6 +6,7 @@ import { loadConfig } from './config.js';
 import { openDb } from './db.js';
 import { createClient } from './bitbucket.js';
 import { createReconciler } from './reconcile.js';
+import { createFailureNotifier, createRecorder } from './record.js';
 
 function safeEqual(a, b) {
   const ha = crypto.createHash('sha256').update(String(a)).digest();
@@ -13,14 +14,21 @@ function safeEqual(a, b) {
   return crypto.timingSafeEqual(ha, hb);
 }
 
-export function createApp({ db, bitbucket, workspace, reconcile, cronSecret, webhookSecret, webhookPathSecret, log = console }) {
+export function createApp({ db, record, bitbucket, workspace, reconcile, cronSecret, webhookSecret, webhookPathSecret, log = console }) {
   const app = express();
   app.use(express.json({ limit: '1mb', verify: (req, _res, buf) => { req.rawBody = buf; } }));
 
+  // A rejected delivery is recorded, so a misconfigured webhook shows on the page instead of failing silently.
+  const reject = async (res, status, reason) => {
+    await db.setMeta('last_rejected_at', new Date().toISOString());
+    await db.setMeta('last_rejected_reason', reason);
+    return res.sendStatus(status);
+  };
+
   app.post('/webhooks/bitbucket/:secret', async (req, res) => {
-    if (!safeEqual(req.params.secret, webhookPathSecret)) return res.sendStatus(403);
+    if (!safeEqual(req.params.secret, webhookPathSecret)) return reject(res, 403, 'path secret does not match');
     if (webhookSecret && !verifySignature(req.rawBody ?? Buffer.alloc(0), req.get('X-Hub-Signature'), webhookSecret)) {
-      return res.sendStatus(401);
+      return reject(res, 401, 'signature does not match');
     }
     if (!COMMIT_STATUS_EVENTS.has(req.get('X-Event-Key'))) return res.sendStatus(200);
     const row = mapCommitStatus(req.body);
@@ -30,7 +38,7 @@ export function createApp({ db, bitbucket, workspace, reconcile, cronSecret, web
     }
     try {
       await db.addRepos(row.workspace, [row.repo_slug]);
-      await db.upsert(row);
+      await record(row);
       await db.setMeta('last_webhook_at', new Date().toISOString());
       res.sendStatus(200);
     } catch (err) {
@@ -49,11 +57,22 @@ export function createApp({ db, bitbucket, workspace, reconcile, cronSecret, web
     }
   });
 
+  app.get('/api/history/:repo', async (req, res) => {
+    try {
+      res.json(await db.listHistory(workspace, req.params.repo));
+    } catch (err) {
+      log.error(`history: ${err.message}`);
+      res.sendStatus(503);
+    }
+  });
+
   app.get('/api/meta', async (_req, res) => {
     try {
       res.json({
         last_webhook_at: await db.getMeta('last_webhook_at'),
         last_sync_at: await db.getMeta('last_sync_at'),
+        last_rejected_at: await db.getMeta('last_rejected_at'),
+        last_rejected_reason: await db.getMeta('last_rejected_reason'),
       });
     } catch (err) {
       log.error(`meta: ${err.message}`);
@@ -86,18 +105,30 @@ export function createApp({ db, bitbucket, workspace, reconcile, cronSecret, web
   return app;
 }
 
+// Wires the parts together. Shared by server.js (local) and the Vercel default export.
+export function buildApp(config, db) {
+  const client = createClient({ accessToken: config.accessToken });
+  const notifyFailure = createFailureNotifier({ slackWebhookUrl: config.slackWebhookUrl });
+  const record = createRecorder({ db, notifyFailure });
+  const reconcile = createReconciler({
+    client, db, record, workspace: config.workspace, recentBranchDays: config.recentBranchDays,
+  });
+  const app = createApp({
+    db,
+    record,
+    bitbucket: client,
+    workspace: config.workspace,
+    reconcile,
+    cronSecret: config.cronSecret,
+    webhookSecret: config.webhookSecret,
+    webhookPathSecret: config.webhookPathSecret,
+  });
+  app.locals.reconcile = reconcile;
+  return app;
+}
+
 // Vercel loads this module and expects an Express app as its default export.
-// Local runs go through server.js, which calls createApp itself.
+// Local runs go through server.js, which calls buildApp itself.
 const config = loadConfig();
 const db = await openDb(config.databaseUrl);
-const client = createClient({ accessToken: config.accessToken });
-
-export default createApp({
-  db,
-  bitbucket: client,
-  workspace: config.workspace,
-  reconcile: createReconciler({ client, db, workspace: config.workspace }),
-  cronSecret: config.cronSecret,
-  webhookSecret: config.webhookSecret,
-  webhookPathSecret: config.webhookPathSecret,
-});
+export default buildApp(config, db);

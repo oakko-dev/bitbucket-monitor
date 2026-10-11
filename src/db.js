@@ -20,6 +20,19 @@ const SCHEMA = `
     PRIMARY KEY (workspace, repo_slug, branch)
   );
 
+  CREATE TABLE IF NOT EXISTS pipeline_history (
+    id           bigserial   PRIMARY KEY,
+    workspace    text        NOT NULL,
+    repo_slug    text        NOT NULL,
+    branch       text        NOT NULL,
+    latest_state text        NOT NULL,
+    environment  text        NOT NULL,
+    source       text        NOT NULL,
+    updated_at   timestamptz NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS pipeline_history_repo
+    ON pipeline_history (workspace, repo_slug, updated_at DESC);
+
   CREATE TABLE IF NOT EXISTS meta (
     key   text PRIMARY KEY,
     value text NOT NULL
@@ -52,17 +65,42 @@ const LIST_STATUS = `
   ORDER BY r.repo_slug, p.branch NULLS FIRST
 `;
 
+const iso = (value) => (value ? new Date(value).toISOString() : null);
+
 export async function openDb(connectionString) {
   const pool = new pg.Pool({ connectionString, max: 3 });
   await pool.query(SCHEMA);
 
   return {
+    // Returns whether the row was applied, and the state it replaced (null for a new branch).
     async upsert(row) {
+      const before = await pool.query(
+        'SELECT latest_state FROM pipeline_state WHERE workspace = $1 AND repo_slug = $2 AND branch = $3',
+        [row.workspace, row.repo_slug, row.branch],
+      );
       const result = await pool.query(UPSERT_STATE, [
         row.workspace, row.repo_slug, row.branch, row.latest_state, row.environment,
         row.pipeline_uuid, row.commit_hash, row.source, row.updated_at,
       ]);
-      return result.rowCount > 0;
+      return { applied: result.rowCount > 0, previous: before.rows[0]?.latest_state ?? null };
+    },
+    async appendHistory(row) {
+      await pool.query(
+        `INSERT INTO pipeline_history (workspace, repo_slug, branch, latest_state, environment, source, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [row.workspace, row.repo_slug, row.branch, row.latest_state, row.environment, row.source, row.updated_at],
+      );
+    },
+    async listHistory(workspace, repo, limit = 20) {
+      const result = await pool.query(
+        `SELECT branch, latest_state AS state, environment, source, updated_at
+         FROM pipeline_history
+         WHERE workspace = $1 AND repo_slug = $2
+         ORDER BY updated_at DESC
+         LIMIT $3`,
+        [workspace, repo, limit],
+      );
+      return result.rows.map((r) => ({ ...r, updated_at: iso(r.updated_at) }));
     },
     async addRepos(workspace, slugs) {
       if (slugs.length === 0) return;
@@ -73,10 +111,7 @@ export async function openDb(connectionString) {
     },
     async listStatus(workspace) {
       const result = await pool.query(LIST_STATUS, [workspace]);
-      return result.rows.map((r) => ({
-        ...r,
-        updated_at: r.updated_at ? new Date(r.updated_at).toISOString() : null,
-      }));
+      return result.rows.map((r) => ({ ...r, updated_at: iso(r.updated_at) }));
     },
     async setMeta(key, value) {
       await pool.query(
