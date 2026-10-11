@@ -100,7 +100,11 @@
   .stat.INPROGRESS .n { color: var(--run); }
   .stat.SUCCESSFUL .n { color: var(--ok); }
 
-  .toolbar { margin-bottom: 8px; }
+  .toolbar { margin-bottom: 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+  .toolbar input[type="search"] { flex: 1 1 220px; }
+  .toggle { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; cursor: pointer; white-space: nowrap; }
+  #scopeCount { white-space: nowrap; font-size: 13px; }
+  .toggle input { width: 16px; height: 16px; }
   .toolbar input {
     width: 100%; min-height: 40px; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--line);
     background: var(--surface); color: var(--text); font: inherit;
@@ -183,6 +187,8 @@
   </div>
 
   <div class="toolbar">
+    <label class="toggle"><input id="showAll" type="checkbox"> Show all repos</label>
+    <span id="scopeCount" class="muted"></span>
     <input id="search" type="search" placeholder="Filter by repo, branch, or environment" aria-label="Filter by repo, branch, or environment">
   </div>
 
@@ -217,6 +223,11 @@
   let rows = [];
   let stateFilter = 'ALL';
   let query = '';
+  let showAll = false;
+
+  // By default a repo is shown only if its webhook is installed or it has run a pipeline.
+  const isActive = (r) => Boolean(r.has_webhook) || r.state != null;
+  const scope = () => (showAll ? rows : rows.filter(isActive));
 
   function ago(iso) {
     const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
@@ -229,15 +240,21 @@
 
   function visible() {
     const q = query.trim().toLowerCase();
-    return rows
+    return scope()
       .filter((r) => stateFilter === 'ALL' || stateOf(r) === stateFilter)
       .filter((r) => !q || [r.repo, r.branch, r.environment].some((f) => String(f ?? '').toLowerCase().includes(q)))
       .sort((a, b) => (RANK[stateOf(a)] ?? 9) - (RANK[stateOf(b)] ?? 9) || String(b.updated_at ?? '').localeCompare(String(a.updated_at ?? '')));
   }
 
   function render() {
-    const counts = { ALL: rows.length, FAILED: 0, INPROGRESS: 0, SUCCESSFUL: 0 };
-    rows.forEach((r) => { if (stateOf(r) in counts) counts[stateOf(r)]++; });
+    const inScope = scope();
+    const counts = { ALL: inScope.length, FAILED: 0, INPROGRESS: 0, SUCCESSFUL: 0 };
+    inScope.forEach((r) => { if (stateOf(r) in counts) counts[stateOf(r)]++; });
+    const repoCount = new Set(rows.map((r) => r.repo)).size;
+    const shownRepos = new Set(inScope.map((r) => r.repo)).size;
+    document.getElementById('scopeCount').textContent = showAll
+      ? `${repoCount} repos`
+      : `${shownRepos} of ${repoCount} repos with a webhook or a run`;
     document.getElementById('c-all').textContent = counts.ALL;
     document.getElementById('c-FAILED').textContent = counts.FAILED;
     document.getElementById('c-INPROGRESS').textContent = counts.INPROGRESS;
@@ -382,6 +399,7 @@
     render();
   }));
   document.getElementById('search').addEventListener('input', (e) => { query = e.target.value; render(); });
+  document.getElementById('showAll').addEventListener('change', (e) => { showAll = e.target.checked; render(); });
 
   load();
   loadMeta();

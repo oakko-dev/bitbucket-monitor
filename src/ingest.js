@@ -60,3 +60,8 @@ export function mapPipeline(workspace, repo_slug, pipeline) {
     updated_at,
   };
 }
+
+// A hook belongs to this app when its URL ends with the path secret route. Other hooks on the repo are ignored.
+export function isOurWebhook(url, webhookPathSecret) {
+  return typeof url === 'string' && url.endsWith(`/webhooks/bitbucket/${webhookPathSecret}`);
+}

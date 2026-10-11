@@ -60,3 +60,29 @@ test('a failed repo list returns failed and does not update last_sync_at', async
   assert.equal(await reconcile(), 'failed');
   assert.deepEqual(meta, []);
 });
+
+test('sync marks a repo as wired only when this app webhook is installed', async () => {
+  const flags = {};
+  const client = {
+    listRepoSlugs: async () => ['wired', 'other-hook', 'lookup-fails'],
+    listHooks: async (_ws, slug) => {
+      if (slug === 'wired') return ['https://host.test/webhooks/bitbucket/s3cret'];
+      if (slug === 'other-hook') return ['https://ci.example.test/hook'];
+      throw new Error('HTTP 403');
+    },
+    listBranches: async () => [],
+  };
+  const db = {
+    addRepos: async () => {},
+    setMeta: async () => {},
+    setRepoWebhook: async (_ws, slug, installed) => { flags[slug] = installed; },
+  };
+  const errors = [];
+  const reconcile = createReconciler({
+    client, db, record: async () => {}, workspace: 'acme', webhookPathSecret: 's3cret',
+    recentBranchDays: 30, log: { error: (m) => errors.push(m) },
+  });
+  assert.equal(await reconcile(), 'ok');
+  assert.deepEqual(flags, { wired: true, 'other-hook': false });
+  assert.match(errors[0], /hooks lookup-fails: HTTP 403/);
+});

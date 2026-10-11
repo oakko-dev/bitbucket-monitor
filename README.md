@@ -76,3 +76,9 @@ The page lists every repo in the workspace. A repo with no pipeline run shows "N
 - **Alerts.** Set `SLACK_WEBHOOK_URL` to a Slack incoming webhook. A message posts when a branch changes to FAILED from another state. A repeat FAILED does not post again.
 - **History.** Click a repo name on the page to see its last 20 recorded state changes. Only changes that were applied are recorded.
 - **Rejected webhooks.** A delivery with a wrong path or signature returns 403 or 401. The page shows the most recent rejection and its reason, so a misconfigured webhook is visible.
+
+## Repo filter
+
+By default the page lists only repos that have this app's webhook installed or have run a pipeline. Tick **Show all repos** to list every repo. The count next to the checkbox shows how many repos are in view.
+
+Each sync reads every repo's hook list to find this app's webhook. The token needs webhook read permission for this check. Without it, the sync logs a `hooks <repo>` error for each repo and keeps the last known value.

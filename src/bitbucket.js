@@ -24,6 +24,17 @@ export function createClient({ accessToken, fetchImpl = fetch, sleep = (ms) => n
         return { ok: false, workspace, error: err.message };
       }
     },
+    // Returns each repo hook's URL, so the sync can tell whether this app's webhook is installed.
+    async listHooks(workspace, slug) {
+      const urls = [];
+      let url = `${API}/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(slug)}/hooks?pagelen=100`;
+      while (url) {
+        const page = await getJson(url);
+        for (const hook of page.values ?? []) urls.push(hook.url);
+        url = page.next;
+      }
+      return urls;
+    },
     // Returns { name, date } for each branch. date is the commit date, used to skip long-dead branches.
     async listBranches(workspace, slug) {
       const branches = [];

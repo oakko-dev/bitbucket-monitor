@@ -38,6 +38,8 @@ export function createApp({ db, record, bitbucket, workspace, reconcile, cronSec
     }
     try {
       await db.addRepos(row.workspace, [row.repo_slug]);
+      // A delivery proves the webhook is installed on this repo.
+      await db.setRepoWebhook(row.workspace, row.repo_slug, true);
       await record(row);
       await db.setMeta('last_webhook_at', new Date().toISOString());
       res.sendStatus(200);
@@ -111,7 +113,7 @@ export function buildApp(config, db) {
   const notifyFailure = createFailureNotifier({ slackWebhookUrl: config.slackWebhookUrl });
   const record = createRecorder({ db, notifyFailure });
   const reconcile = createReconciler({
-    client, db, record, workspace: config.workspace, recentBranchDays: config.recentBranchDays,
+    client, db, record, workspace: config.workspace, webhookPathSecret: config.webhookPathSecret, recentBranchDays: config.recentBranchDays,
   });
   const app = createApp({
     db,

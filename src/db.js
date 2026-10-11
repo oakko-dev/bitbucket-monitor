@@ -2,10 +2,12 @@ import pg from 'pg';
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS repos (
-    workspace text NOT NULL,
-    repo_slug text NOT NULL,
+    workspace   text    NOT NULL,
+    repo_slug   text    NOT NULL,
+    has_webhook boolean NOT NULL DEFAULT false,
     PRIMARY KEY (workspace, repo_slug)
   );
+  ALTER TABLE repos ADD COLUMN IF NOT EXISTS has_webhook boolean NOT NULL DEFAULT false;
 
   CREATE TABLE IF NOT EXISTS pipeline_state (
     workspace     text        NOT NULL,
@@ -57,7 +59,7 @@ const UPSERT_STATE = `
 
 // Every repo appears, even one with no pipeline run yet. Those rows have null state fields.
 const LIST_STATUS = `
-  SELECT r.repo_slug AS repo, p.branch, p.latest_state AS state, p.environment, p.updated_at, p.source
+  SELECT r.repo_slug AS repo, r.has_webhook, p.branch, p.latest_state AS state, p.environment, p.updated_at, p.source
   FROM repos r
   LEFT JOIN pipeline_state p
     ON p.workspace = r.workspace AND p.repo_slug = r.repo_slug
@@ -107,6 +109,12 @@ export async function openDb(connectionString) {
       await pool.query(
         'INSERT INTO repos (workspace, repo_slug) SELECT $1, unnest($2::text[]) ON CONFLICT DO NOTHING',
         [workspace, slugs],
+      );
+    },
+    async setRepoWebhook(workspace, slug, installed) {
+      await pool.query(
+        'UPDATE repos SET has_webhook = $3 WHERE workspace = $1 AND repo_slug = $2',
+        [workspace, slug, installed],
       );
     },
     async listStatus(workspace) {
