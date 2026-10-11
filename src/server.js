@@ -1,6 +1,6 @@
 import { loadConfig } from './config.js';
 import { openDb } from './db.js';
-import { buildApp } from './app.js';
+import { buildApp } from './routes.js';
 
 const config = loadConfig();
 const db = await openDb(config.databaseUrl);

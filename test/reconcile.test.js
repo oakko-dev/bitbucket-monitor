@@ -28,7 +28,7 @@ test('sync checks only branches with a commit inside the window', async () => {
   });
   const recorded = [];
   const reconcile = createReconciler({
-    client, db: { addRepos: async () => {}, setMeta: async () => {} }, record: async (r) => recorded.push(r.branch),
+    client, db: { addRepos: async () => {}, getMeta: async () => null, setMeta: async () => {} }, record: async (r) => recorded.push(r.branch),
     workspace: 'acme', recentBranchDays: 30, log: { error: () => {} }, now: () => NOW,
   });
   assert.equal(await reconcile(), 'ok');
@@ -41,7 +41,7 @@ test('a second sync while one runs returns busy', async () => {
   const gate = new Promise((r) => { release = r; });
   const client = { listRepoSlugs: async () => { await gate; return []; } };
   const reconcile = createReconciler({
-    client, db: { addRepos: async () => {}, setMeta: async () => {} }, record: async () => {},
+    client, db: { addRepos: async () => {}, getMeta: async () => null, setMeta: async () => {} }, record: async () => {},
     workspace: 'acme', recentBranchDays: 30, log: { error: () => {} },
   });
   const first = reconcile();
@@ -54,7 +54,7 @@ test('a failed repo list returns failed and does not update last_sync_at', async
   const meta = [];
   const client = { listRepoSlugs: async () => { throw new Error('HTTP 401'); } };
   const reconcile = createReconciler({
-    client, db: { addRepos: async () => {}, setMeta: async (k) => meta.push(k) }, record: async () => {},
+    client, db: { addRepos: async () => {}, getMeta: async () => null, setMeta: async (k) => meta.push(k) }, record: async () => {},
     workspace: 'acme', recentBranchDays: 30, log: { error: () => {} },
   });
   assert.equal(await reconcile(), 'failed');
@@ -74,6 +74,7 @@ test('sync marks a repo as wired only when this app webhook is installed', async
   };
   const db = {
     addRepos: async () => {},
+    getMeta: async () => null,
     setMeta: async () => {},
     setRepoWebhook: async (_ws, slug, installed) => { flags[slug] = installed; },
   };
@@ -85,4 +86,47 @@ test('sync marks a repo as wired only when this app webhook is installed', async
   assert.equal(await reconcile(), 'ok');
   assert.deepEqual(flags, { wired: true, 'other-hook': false });
   assert.match(errors[0], /hooks lookup-fails: HTTP 403/);
+});
+
+test('a sync past its time budget stops, and the next run resumes after the last repo done', async () => {
+  const meta = {};
+  const synced = [];
+  let clock = 0;
+  const client = {
+    listRepoSlugs: async () => ['d', 'a', 'c', 'b'],
+    listBranches: async (_ws, slug) => { synced.push(slug); clock += 10; return []; },
+  };
+  const db = {
+    addRepos: async () => {},
+    getMeta: async (k) => meta[k] ?? null,
+    setMeta: async (k, v) => { meta[k] = v; },
+    setRepoWebhook: async () => {},
+  };
+  const reconcile = createReconciler({
+    client, db, record: async () => {}, workspace: 'acme', webhookPathSecret: 's', recentBranchDays: 30,
+    budgetMs: 15, log: { error: () => {} }, now: () => clock,
+  });
+  assert.equal(await reconcile(), 'partial');
+  assert.deepEqual(synced, ['a', 'b']);
+  assert.equal(meta.sync_cursor, 'b');
+  assert.equal(await reconcile(), 'partial');
+  assert.deepEqual(synced, ['a', 'b', 'c', 'd']);
+  assert.equal(meta.sync_cursor, 'd');
+  assert.equal(await reconcile(), 'partial');
+  assert.deepEqual(synced.slice(4), ['a', 'b']);
+});
+
+test('a sync with no budget visits every repo and clears the cursor', async () => {
+  const meta = { sync_cursor: 'b' };
+  const synced = [];
+  const client = { listRepoSlugs: async () => ['a', 'b', 'c'], listBranches: async (_ws, slug) => { synced.push(slug); return []; } };
+  const db = {
+    addRepos: async () => {}, getMeta: async (k) => meta[k] ?? null, setMeta: async (k, v) => { meta[k] = v; }, setRepoWebhook: async () => {},
+  };
+  const reconcile = createReconciler({
+    client, db, record: async () => {}, workspace: 'acme', webhookPathSecret: 's', recentBranchDays: 30, log: { error: () => {} },
+  });
+  assert.equal(await reconcile(), 'ok');
+  assert.deepEqual(synced, ['c', 'a', 'b']);
+  assert.equal(meta.sync_cursor, '');
 });

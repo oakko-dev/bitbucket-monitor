@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { mapCommitStatus, mapPipeline, verifySignature } from '../src/ingest.js';
+import { mapPipeline, parseStatusEvent, verifySignature } from '../src/ingest.js';
 import { openDb } from '../src/db.js';
 import { createClient } from '../src/bitbucket.js';
 
@@ -10,16 +10,10 @@ const payload = (state, updated_on) => ({
   commit_status: { state, refname: 'main', key: 'production', updated_on, commit: { hash: 'abc' } },
 });
 
-test('mapCommitStatus maps state, branch, repo, environment', () => {
-  const row = mapCommitStatus(payload('FAILED', '2026-10-10T10:00:00+00:00'));
-  assert.deepEqual(row, {
-    workspace: 'acme', repo_slug: 'web', branch: 'main', latest_state: 'FAILED', environment: 'production',
-    pipeline_uuid: null, commit_hash: 'abc', source: 'webhook', updated_at: '2026-10-10T10:00:00.000Z',
-  });
-  const noKey = payload('SUCCESSFUL', '2026-10-10T10:00:00Z');
-  delete noKey.commit_status.key;
-  assert.equal(mapCommitStatus(noKey).environment, 'default');
-  assert.equal(mapCommitStatus(payload('BOGUS', '2026-10-10T10:00:00Z')), null);
+test('parseStatusEvent takes only the repo and branch, whatever the status says', () => {
+  assert.deepEqual(parseStatusEvent(payload('SUCCESSFUL', '2026-10-10T10:00:00Z')), { workspace: 'acme', repo_slug: 'web', branch: 'main' });
+  assert.equal(parseStatusEvent({ repository: { full_name: 'acme/web' }, commit_status: {} }), null);
+  assert.equal(parseStatusEvent({ commit_status: { refname: 'main' } }), null);
 });
 
 test('mapPipeline maps completed and running pipelines', () => {
@@ -33,9 +27,10 @@ test('upsert only replaces with a newer event, regardless of arrival order', { s
   const db = await openDb(process.env.TEST_DATABASE_URL);
   const repo = `web-${crypto.randomUUID()}`;
   const withRepo = (state, updated_on) => {
-    const p = payload(state, updated_on);
-    p.repository.full_name = `acme/${repo}`;
-    return mapCommitStatus(p);
+    return {
+      workspace: 'acme', repo_slug: repo, branch: 'main', latest_state: state, environment: 'prod',
+      pipeline_uuid: null, commit_hash: 'abc', source: 'webhook', updated_at: new Date(updated_on).toISOString(),
+    };
   };
   const stateOf = async () => (await db.listStatus('acme')).find((r) => r.repo === repo).state;
   const applied = async (r) => (await db.upsert(r)).applied;
@@ -76,6 +71,16 @@ test('client retries 429 using Retry-After, then gives up after bounded retries'
 
   const always429 = createClient({ accessToken: 't', fetchImpl: async () => new Response('', { status: 429 }), sleep: async () => {} });
   await assert.rejects(always429.listRepoSlugs('acme'), /HTTP 429/);
+});
+
+test('client does not sleep through a 429 wait longer than maxRetryWaitMs', async () => {
+  const sleeps = [];
+  const client = createClient({
+    accessToken: 't', maxRetryWaitMs: 10000, sleep: async (ms) => sleeps.push(ms),
+    fetchImpl: async () => new Response('', { status: 429, headers: { 'Retry-After': '60' } }),
+  });
+  await assert.rejects(client.listRepoSlugs('acme'), /HTTP 429/);
+  assert.deepEqual(sleeps, []);
 });
 
 // Runs against a real Postgres when TEST_DATABASE_URL is set.

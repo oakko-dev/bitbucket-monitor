@@ -1,6 +1,6 @@
 # bitbucket-monitor
 
-Deploy status dashboard for a Bitbucket Cloud workspace. Webhooks for commit statuses push updates in real time. A poller re-checks the latest pipeline of every repo every 10 minutes. Each (workspace, repo, branch) row is replaced only by an event with a newer `updated_at`, so late or duplicate deliveries do nothing.
+Deploy status dashboard for a Bitbucket Cloud workspace. A commit-status webhook tells the app a branch changed, and the app reads that branch's latest pipeline from Bitbucket, so statuses from other CI tools cannot overwrite the pipeline state. A poller re-checks the latest pipeline of every repo every 10 minutes. Each (workspace, repo, branch) row is replaced only by an event with a newer `updated_at`, so late or duplicate deliveries do nothing.
 
 ## Setup
 
@@ -11,7 +11,9 @@ Deploy status dashboard for a Bitbucket Cloud workspace. Webhooks for commit sta
    - `WEBHOOK_PATH_SECRET` (required): a long random string, e.g. `openssl rand -hex 24`
    - `BITBUCKET_WEBHOOK_SECRET` (optional): when set, every delivery must carry a valid `X-Hub-Signature` HMAC-SHA256
    - `DATABASE_URL` (required): a Postgres connection string
-   - `CRON_SECRET` (Vercel only): Vercel Cron sends it to `/api/reconcile`
+   - `DASHBOARD_PASSWORD` (required): the password for the dashboard login. Any username works. Generate one with `openssl rand -hex 24`
+   - `CRON_SECRET` (Vercel only): Vercel Cron sends it to `/api/reconcile`. The Sync button does not use it
+   - `RECONCILE_BUDGET_MS` (default 40000 on Vercel, no limit elsewhere): a sync stops starting new repos after this long and resumes after the last repo done on the next run
    - `PORT` (default 3000), `RECONCILE_INTERVAL_MS` (default 600000)
 3. For each repo, add a webhook under Repository settings > Webhooks:
    - URL: `https://<host>/webhooks/bitbucket/<WEBHOOK_PATH_SECRET>`
@@ -26,7 +28,7 @@ set -a; . ./.env; set +a
 npm start
 ```
 
-Open `http://localhost:3000/`. The page reloads `/api/status` every 15 seconds.
+Open `http://localhost:3000/` and sign in with `DASHBOARD_PASSWORD`. The page reloads `/api/status` every 15 seconds.
 
 Run the tests with `npm test`.
 
@@ -44,10 +46,12 @@ The image does not contain `.env`. Pass the variables at runtime. Data lives in 
 Vercel functions cannot keep local files, so the data lives in Postgres.
 
 1. In Vercel, add the **Neon** (Postgres) integration from the Marketplace. It sets `DATABASE_URL`.
-2. Add `BITBUCKET_WORKSPACE`, `BITBUCKET_ACCESS_TOKEN`, `WEBHOOK_PATH_SECRET`, and `CRON_SECRET` in the project's environment variables.
+2. Add `BITBUCKET_WORKSPACE`, `BITBUCKET_ACCESS_TOKEN`, `WEBHOOK_PATH_SECRET`, `DASHBOARD_PASSWORD`, and `CRON_SECRET` in the project's environment variables.
 3. Deploy. `vercel.json` schedules `/api/reconcile` every 10 minutes.
 
 Vercel Cron runs every 10 minutes only on the Pro plan. Hobby allows one run per day, so the poll runs less often there. Webhooks still update the page in real time.
+
+A sync that runs out of its time budget finishes the remaining repos on the next run, whether that is the next cron tick or the next click on Sync now. On Hobby, a workspace with many repos can take several days to sweep once.
 
 ## Add the webhook to every repo
 

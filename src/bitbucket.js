@@ -1,14 +1,17 @@
 const API = 'https://api.bitbucket.org/2.0';
 const MAX_429_RETRIES = 5;
 
-export function createClient({ accessToken, fetchImpl = fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+export function createClient({ accessToken, maxRetryWaitMs = Infinity, fetchImpl = fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
   async function getJson(url) {
     for (let attempt = 0; ; attempt++) {
       const res = await fetchImpl(url, { headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' } });
       if (res.status === 429 && attempt < MAX_429_RETRIES) {
         const retryAfter = Number(res.headers.get('retry-after'));
-        await sleep((Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 60) * 1000);
-        continue;
+        const waitMs = (Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 60) * 1000;
+        if (waitMs <= maxRetryWaitMs) {
+          await sleep(waitMs);
+          continue;
+        }
       }
       if (!res.ok) throw new Error(`GET ${url} -> HTTP ${res.status}`);
       return res.json();

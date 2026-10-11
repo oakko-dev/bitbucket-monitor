@@ -1,7 +1,6 @@
 import crypto from 'node:crypto';
 
 export const COMMIT_STATUS_EVENTS = new Set(['repo:commit_status_created', 'repo:commit_status_updated']);
-const STATES = new Set(['SUCCESSFUL', 'FAILED', 'INPROGRESS', 'STOPPED']);
 
 export function verifySignature(rawBody, header, secret) {
   if (typeof header !== 'string' || !header.startsWith('sha256=')) return false;
@@ -20,21 +19,12 @@ function splitFullName(fullName) {
   return workspace && repo_slug ? { workspace, repo_slug } : null;
 }
 
-export function mapCommitStatus(payload) {
-  const status = payload?.commit_status;
+// A commit-status event only says which branch changed. The state comes from the Pipelines API, because
+// statuses also come from other CI tools and from single pipeline steps.
+export function parseStatusEvent(payload) {
   const repo = splitFullName(payload?.repository?.full_name);
-  const updated_at = toIso(status?.updated_on ?? status?.created_on);
-  if (!status || !repo || !status.refname || !STATES.has(status.state) || !updated_at) return null;
-  return {
-    ...repo,
-    branch: status.refname,
-    latest_state: status.state,
-    environment: status.key || status.name || 'default',
-    pipeline_uuid: null,
-    commit_hash: status.commit?.hash ?? null,
-    source: 'webhook',
-    updated_at,
-  };
+  const branch = payload?.commit_status?.refname;
+  return repo && branch ? { ...repo, branch } : null;
 }
 
 const PIPELINE_RESULT_STATES = { SUCCESSFUL: 'SUCCESSFUL', FAILED: 'FAILED', ERROR: 'FAILED', STOPPED: 'STOPPED', EXPIRED: 'STOPPED' };

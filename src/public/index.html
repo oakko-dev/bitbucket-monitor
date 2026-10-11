@@ -342,23 +342,15 @@
     }
   }
 
-  // The sync key is the CRON_SECRET. It is kept only for this browser tab.
   async function syncNow() {
     const button = document.getElementById('sync');
     const note = document.getElementById('syncNote');
-    let key = sessionStorage.getItem('syncKey');
-    if (!key) {
-      key = window.prompt('Sync key (CRON_SECRET):');
-      if (!key) return;
-      sessionStorage.setItem('syncKey', key);
-    }
     button.disabled = true;
     note.textContent = 'Syncing…';
     try {
-      const res = await fetch('/api/sync', { method: 'POST', headers: { Authorization: `Bearer ${key}` } });
+      const res = await fetch('/api/sync', { method: 'POST', headers: { 'X-Requested-With': 'dashboard' } });
       if (res.status === 401) {
-        sessionStorage.removeItem('syncKey');
-        note.textContent = 'Sync key rejected.';
+        note.textContent = 'Not signed in. Reload the page and sign in.';
         return;
       }
       if (res.status === 502) {
@@ -366,8 +358,12 @@
         return;
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      note.textContent = data.started ? 'Sync finished.' : 'A sync is already running.';
+      const { outcome } = await res.json();
+      note.textContent = {
+        ok: 'Sync finished.',
+        partial: 'Synced part of the repos. Click again to continue.',
+        busy: 'A sync is already running.',
+      }[outcome] ?? 'Sync finished.';
       await Promise.all([load(), loadMeta()]);
     } catch (err) {
       note.textContent = `Sync failed (${err.message}).`;
