@@ -50,13 +50,36 @@
   #sync:disabled { opacity: .6; cursor: wait; }
   #syncNote { color: var(--muted); font-size: 12px; }
   .bad { color: var(--fail); font-weight: 600; }
-  .repo { cursor: pointer; }
-  .repo:hover { text-decoration: underline; }
-  #history { margin-top: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
-  #history h2 { font-size: 14px; margin: 0 0 8px; }
-  #history table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  #history th, #history td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); }
-  #history th { color: var(--muted); font-weight: 600; }
+  button.repo {
+    all: unset; cursor: pointer; font-weight: 600; overflow-wrap: anywhere; border-radius: 4px;
+  }
+  button.repo:hover { text-decoration: underline; }
+  button.repo:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+  /* Opens over the list, so a long list never pushes it out of view. */
+  #history {
+    position: fixed; inset: 0 0 0 auto; margin: 0; height: 100dvh; max-height: 100dvh;
+    width: min(440px, 100vw); max-width: 100vw; padding: 0; border: 0; border-left: 1px solid var(--line);
+    background: var(--surface); color: var(--text);
+  }
+  #history::backdrop { background: rgb(0 0 0 / 0.35); }
+  #historyHead {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 14px 16px; border-bottom: 1px solid var(--line);
+  }
+  #historyHead h2 { font-size: 15px; margin: 0; overflow-wrap: anywhere; }
+  #historyClose {
+    min-width: 40px; min-height: 40px; border: 1px solid var(--line); border-radius: 6px;
+    background: transparent; color: inherit; font: inherit; cursor: pointer;
+  }
+  #historyBody { overflow-y: auto; padding: 8px 16px 24px; }
+  #historyBody table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  #historyBody th, #historyBody td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  #historyBody th { color: var(--muted); font-weight: 600; }
+  #historyBody td:first-child { overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  @media (max-width: 720px) {
+    #history { inset: auto 0 0 0; width: 100vw; height: 80dvh; max-height: 80dvh; border: 0; border-top: 1px solid var(--line); border-radius: 12px 12px 0 0; }
+  }
 
   #error {
     display: none; margin-bottom: 12px; padding: 8px 12px; border-radius: 6px;
@@ -168,10 +191,13 @@
     <div id="list"></div>
   </section>
 
-  <section id="history" hidden aria-live="polite">
-    <h2 id="historyTitle"></h2>
-    <div id="historyBody"></div>
-  </section>
+  <dialog id="history" aria-labelledby="historyTitle">
+    <div id="historyHead">
+      <h2 id="historyTitle"></h2>
+      <button id="historyClose" type="button" aria-label="Close recent runs">×</button>
+    </div>
+    <div id="historyBody" aria-live="polite"></div>
+  </dialog>
 </main>
 <script>
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -231,7 +257,7 @@
         ? `<time datetime="${esc(r.updated_at)}">${esc(ago(r.updated_at))}</time>`
         : '<span class="muted">—</span>';
       return `<article class="row ${esc(state)}">` +
-        `<div class="repo" data-repo="${esc(r.repo)}" title="Show recent runs">${esc(r.repo)}</div>` +
+        `<button class="repo" type="button" data-repo="${esc(r.repo)}" title="Show recent runs">${esc(r.repo)}</button>` +
         `<div class="branch">${esc(r.branch ?? '—')}</div>` +
         `<div><span class="badge ${esc(state)}">${state === 'NONE' ? '' : (ICONS[state] ?? '')}${esc(LABELS[state] ?? state)}</span></div>` +
         `<div class="env">${esc(r.environment ?? '')}</div>` +
@@ -258,11 +284,11 @@
 
   // Shows the last 20 state changes for one repo, across its branches.
   async function showHistory(repo) {
-    const section = document.getElementById('history');
+    const dialog = document.getElementById('history');
     document.getElementById('historyTitle').textContent = `Recent runs: ${repo}`;
     const body = document.getElementById('historyBody');
     body.textContent = 'Loading…';
-    section.hidden = false;
+    if (!dialog.open) dialog.showModal();
     try {
       const res = await fetch(`/api/history/${encodeURIComponent(repo)}`, { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -283,6 +309,11 @@
   document.getElementById('list').addEventListener('click', (e) => {
     const repo = e.target.closest('.repo');
     if (repo) showHistory(repo.dataset.repo);
+  });
+  document.getElementById('historyClose').addEventListener('click', () => document.getElementById('history').close());
+  // Clicking the backdrop closes the dialog. Clicks inside it land on its children, so they do not match.
+  document.getElementById('history').addEventListener('click', (e) => {
+    if (e.target.id === 'history') e.target.close();
   });
 
   async function loadMeta() {
