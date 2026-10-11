@@ -129,7 +129,7 @@
 
   .repo { font-weight: 600; overflow-wrap: anywhere; }
   .branch { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; overflow-wrap: anywhere; }
-  .env { color: var(--muted); }
+  .commit { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
   .time { color: var(--muted); white-space: nowrap; }
   .muted { color: var(--muted); }
 
@@ -157,9 +157,9 @@
     .row .repo { grid-area: repo; }
     .row .badge { grid-area: badge; justify-self: end; }
     .row .branch { grid-area: branch; }
-    .row .env { grid-area: env; }
+    .row .commit { grid-area: env; }
     .row .time { grid-area: time; justify-self: end; font-size: 12px; }
-    .row .env::before { content: "env: "; }
+    .row .commit::before { content: "commit: "; }
   }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 </style>
@@ -193,7 +193,7 @@
   </div>
 
   <section class="table" aria-label="Latest pipeline state per repo and branch">
-    <div class="head" aria-hidden="true"><div>Repo</div><div>Branch</div><div>State</div><div>Environment</div><div>Updated</div></div>
+    <div class="head" aria-hidden="true"><div>Repo</div><div>Branch</div><div>State</div><div>Commit</div><div>Updated</div></div>
     <div id="list"></div>
   </section>
 
@@ -277,7 +277,7 @@
         `<button class="repo" type="button" data-repo="${esc(r.repo)}" title="Show recent runs">${esc(r.repo)}</button>` +
         `<div class="branch">${esc(r.branch ?? '—')}</div>` +
         `<div><span class="badge ${esc(state)}">${state === 'NONE' ? '' : (ICONS[state] ?? '')}${esc(LABELS[state] ?? state)}</span></div>` +
-        `<div class="env">${esc(r.environment ?? '')}</div>` +
+        `<div class="commit" title="${esc(r.commit_hash ?? '')}">${esc((r.commit_hash ?? '').slice(0, 7) || '—')}</div>` +
         `<div class="time" title="${esc(stamp)}">${when}</div>` +
       `</article>`;
     }).join('');

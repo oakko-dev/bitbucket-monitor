@@ -59,7 +59,7 @@ const UPSERT_STATE = `
 
 // Every repo appears, even one with no pipeline run yet. Those rows have null state fields.
 const LIST_STATUS = `
-  SELECT r.repo_slug AS repo, r.has_webhook, p.branch, p.latest_state AS state, p.environment, p.updated_at, p.source
+  SELECT r.repo_slug AS repo, r.has_webhook, p.branch, p.latest_state AS state, p.environment, p.commit_hash, p.updated_at, p.source
   FROM repos r
   LEFT JOIN pipeline_state p
     ON p.workspace = r.workspace AND p.repo_slug = r.repo_slug
