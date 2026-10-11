@@ -40,9 +40,15 @@
   :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
   main { max-width: 1120px; margin: 0 auto; padding: 16px 16px 40px; }
 
-  header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; margin-bottom: 12px; }
+  header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin-bottom: 12px; }
   h1 { font-size: 18px; font-weight: 650; margin: 0; }
-  #updated { color: var(--muted); font-size: 12px; }
+  .meta { color: var(--muted); font-size: 12px; display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; }
+  #sync {
+    min-height: 36px; padding: 0 14px; border-radius: 6px; border: 1px solid var(--focus);
+    background: var(--focus); color: #fff; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  #sync:disabled { opacity: .6; cursor: wait; }
+  #syncNote { color: var(--muted); font-size: 12px; }
 
   #error {
     display: none; margin-bottom: 12px; padding: 8px 12px; border-radius: 6px;
@@ -100,6 +106,8 @@
   .badge.SUCCESSFUL { background: var(--ok-bg); color: var(--ok); }
   .badge.FAILED { background: var(--fail); color: #fff; }
   .badge.INPROGRESS { background: var(--run-bg); color: var(--run); }
+  .badge.NONE { background: transparent; color: var(--muted); border: 1px dashed var(--line); }
+  .row.NONE::before { background: var(--line); }
 
   .empty { padding: 28px 16px; text-align: center; color: var(--muted); }
 
@@ -125,7 +133,13 @@
 <main>
   <header>
     <h1>Deploy Status</h1>
-    <span id="updated" aria-live="polite">Loading…</span>
+    <div class="meta" aria-live="polite">
+      <span id="lastWebhook">Last webhook: …</span>
+      <span id="lastSync">Last sync: …</span>
+      <span id="updated">Loading…</span>
+      <button id="sync" type="button">Sync now</button>
+      <span id="syncNote"></span>
+    </div>
   </header>
   <div id="error" role="alert"></div>
 
@@ -147,7 +161,9 @@
 </main>
 <script>
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-  const LABELS = { SUCCESSFUL: 'Passed', FAILED: 'Failed', INPROGRESS: 'Running', STOPPED: 'Stopped' };
+  const LABELS = { SUCCESSFUL: 'Passed', FAILED: 'Failed', INPROGRESS: 'Running', STOPPED: 'Stopped', NONE: 'No runs yet' };
+  // A repo with no pipeline run has a null state. Treat it as NONE everywhere below.
+  const stateOf = (r) => r.state ?? 'NONE';
   // Text plus shape, so state is not carried by color alone.
   const ICONS = {
     SUCCESSFUL: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M6.2 11.3 2.9 8l1.1-1.1 2.2 2.2 5.8-5.8 1.1 1.1z"/></svg>',
@@ -156,7 +172,7 @@
     STOPPED: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" fill="currentColor"/></svg>',
   };
   // Failures first, then running, then stopped and passed. Newest first within a group.
-  const RANK = { FAILED: 0, INPROGRESS: 1, STOPPED: 2, SUCCESSFUL: 3 };
+  const RANK = { FAILED: 0, INPROGRESS: 1, STOPPED: 2, SUCCESSFUL: 3, NONE: 4 };
 
   let rows = [];
   let stateFilter = 'ALL';
@@ -174,14 +190,14 @@
   function visible() {
     const q = query.trim().toLowerCase();
     return rows
-      .filter((r) => stateFilter === 'ALL' || r.state === stateFilter)
+      .filter((r) => stateFilter === 'ALL' || stateOf(r) === stateFilter)
       .filter((r) => !q || [r.repo, r.branch, r.environment].some((f) => String(f ?? '').toLowerCase().includes(q)))
-      .sort((a, b) => (RANK[a.state] ?? 9) - (RANK[b.state] ?? 9) || String(b.updated_at).localeCompare(String(a.updated_at)));
+      .sort((a, b) => (RANK[stateOf(a)] ?? 9) - (RANK[stateOf(b)] ?? 9) || String(b.updated_at ?? '').localeCompare(String(a.updated_at ?? '')));
   }
 
   function render() {
     const counts = { ALL: rows.length, FAILED: 0, INPROGRESS: 0, SUCCESSFUL: 0 };
-    rows.forEach((r) => { if (r.state in counts) counts[r.state]++; });
+    rows.forEach((r) => { if (stateOf(r) in counts) counts[stateOf(r)]++; });
     document.getElementById('c-all').textContent = counts.ALL;
     document.getElementById('c-FAILED').textContent = counts.FAILED;
     document.getElementById('c-INPROGRESS').textContent = counts.INPROGRESS;
@@ -194,17 +210,75 @@
       return;
     }
     el.innerHTML = list.map((r) => {
-      const label = LABELS[r.state] ?? r.state;
-      const stamp = new Date(r.updated_at).toLocaleString();
-      return `<article class="row ${esc(r.state)}">` +
+      const state = stateOf(r);
+      const hasRun = r.updated_at != null;
+      const stamp = hasRun ? new Date(r.updated_at).toLocaleString() : '';
+      const when = hasRun
+        ? `<time datetime="${esc(r.updated_at)}">${esc(ago(r.updated_at))}</time>`
+        : '<span class="muted">—</span>';
+      return `<article class="row ${esc(state)}">` +
         `<div class="repo">${esc(r.repo)}</div>` +
-        `<div class="branch">${esc(r.branch)}</div>` +
-        `<div><span class="badge ${esc(r.state)}">${ICONS[r.state] ?? ''}${esc(label)}</span></div>` +
-        `<div class="env">${esc(r.environment)}</div>` +
-        `<div class="time" title="${esc(stamp)}"><time datetime="${esc(r.updated_at)}">${esc(ago(r.updated_at))}</time></div>` +
+        `<div class="branch">${esc(r.branch ?? '—')}</div>` +
+        `<div><span class="badge ${esc(state)}">${state === 'NONE' ? '' : (ICONS[state] ?? '')}${esc(LABELS[state] ?? state)}</span></div>` +
+        `<div class="env">${esc(r.environment ?? '')}</div>` +
+        `<div class="time" title="${esc(stamp)}">${when}</div>` +
       `</article>`;
     }).join('');
   }
+
+  // The server returns timestamps as ISO strings, or null when never set.
+  function showMeta(meta) {
+    const set = (id, label, iso) => {
+      document.getElementById(id).textContent = iso ? `${label}: ${ago(iso)}` : `${label}: never`;
+    };
+    set('lastWebhook', 'Last webhook', meta.last_webhook_at);
+    set('lastSync', 'Last sync', meta.last_sync_at);
+  }
+
+  async function loadMeta() {
+    try {
+      const res = await fetch('/api/meta', { cache: 'no-store' });
+      if (res.ok) showMeta(await res.json());
+    } catch {
+      // The status refresh already reports connection errors.
+    }
+  }
+
+  // The sync key is the CRON_SECRET. It is kept only for this browser tab.
+  async function syncNow() {
+    const button = document.getElementById('sync');
+    const note = document.getElementById('syncNote');
+    let key = sessionStorage.getItem('syncKey');
+    if (!key) {
+      key = window.prompt('Sync key (CRON_SECRET):');
+      if (!key) return;
+      sessionStorage.setItem('syncKey', key);
+    }
+    button.disabled = true;
+    note.textContent = 'Syncing…';
+    try {
+      const res = await fetch('/api/sync', { method: 'POST', headers: { Authorization: `Bearer ${key}` } });
+      if (res.status === 401) {
+        sessionStorage.removeItem('syncKey');
+        note.textContent = 'Sync key rejected.';
+        return;
+      }
+      if (res.status === 502) {
+        note.textContent = 'Sync failed. Bitbucket did not return the repo list. Check the server log.';
+        return;
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      note.textContent = data.started ? 'Sync finished.' : 'A sync is already running.';
+      await Promise.all([load(), loadMeta()]);
+    } catch (err) {
+      note.textContent = `Sync failed (${err.message}).`;
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  document.getElementById('sync').addEventListener('click', syncNow);
 
   async function load() {
     const error = document.getElementById('error');
@@ -229,7 +303,9 @@
   document.getElementById('search').addEventListener('input', (e) => { query = e.target.value; render(); });
 
   load();
+  loadMeta();
   setInterval(load, 15000);
+  setInterval(loadMeta, 15000);
   setInterval(render, 30000);
 </script>
 </body>

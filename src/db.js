@@ -1,6 +1,12 @@
 import pg from 'pg';
 
 const SCHEMA = `
+  CREATE TABLE IF NOT EXISTS repos (
+    workspace text NOT NULL,
+    repo_slug text NOT NULL,
+    PRIMARY KEY (workspace, repo_slug)
+  );
+
   CREATE TABLE IF NOT EXISTS pipeline_state (
     workspace     text        NOT NULL,
     repo_slug     text        NOT NULL,
@@ -13,10 +19,15 @@ const SCHEMA = `
     updated_at    timestamptz NOT NULL,
     PRIMARY KEY (workspace, repo_slug, branch)
   );
+
+  CREATE TABLE IF NOT EXISTS meta (
+    key   text PRIMARY KEY,
+    value text NOT NULL
+  );
 `;
 
 // Newer-wins lives in SQL, so webhook and reconcile writes can arrive in any order.
-const UPSERT = `
+const UPSERT_STATE = `
   INSERT INTO pipeline_state
     (workspace, repo_slug, branch, latest_state, environment, pipeline_uuid, commit_hash, source, updated_at)
   VALUES
@@ -31,10 +42,14 @@ const UPSERT = `
   WHERE excluded.updated_at > pipeline_state.updated_at
 `;
 
-const LIST = `
-  SELECT repo_slug AS repo, branch, latest_state AS state, environment, updated_at, source
-  FROM pipeline_state
-  ORDER BY repo_slug, branch
+// Every repo appears, even one with no pipeline run yet. Those rows have null state fields.
+const LIST_STATUS = `
+  SELECT r.repo_slug AS repo, p.branch, p.latest_state AS state, p.environment, p.updated_at, p.source
+  FROM repos r
+  LEFT JOIN pipeline_state p
+    ON p.workspace = r.workspace AND p.repo_slug = r.repo_slug
+  WHERE r.workspace = $1
+  ORDER BY r.repo_slug, p.branch NULLS FIRST
 `;
 
 export async function openDb(connectionString) {
@@ -43,15 +58,35 @@ export async function openDb(connectionString) {
 
   return {
     async upsert(row) {
-      const result = await pool.query(UPSERT, [
+      const result = await pool.query(UPSERT_STATE, [
         row.workspace, row.repo_slug, row.branch, row.latest_state, row.environment,
         row.pipeline_uuid, row.commit_hash, row.source, row.updated_at,
       ]);
       return result.rowCount > 0;
     },
-    async listStatus() {
-      const result = await pool.query(LIST);
-      return result.rows.map((r) => ({ ...r, updated_at: new Date(r.updated_at).toISOString() }));
+    async addRepos(workspace, slugs) {
+      if (slugs.length === 0) return;
+      await pool.query(
+        'INSERT INTO repos (workspace, repo_slug) SELECT $1, unnest($2::text[]) ON CONFLICT DO NOTHING',
+        [workspace, slugs],
+      );
+    },
+    async listStatus(workspace) {
+      const result = await pool.query(LIST_STATUS, [workspace]);
+      return result.rows.map((r) => ({
+        ...r,
+        updated_at: r.updated_at ? new Date(r.updated_at).toISOString() : null,
+      }));
+    },
+    async setMeta(key, value) {
+      await pool.query(
+        'INSERT INTO meta (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = excluded.value',
+        [key, value],
+      );
+    },
+    async getMeta(key) {
+      const result = await pool.query('SELECT value FROM meta WHERE key = $1', [key]);
+      return result.rows[0]?.value ?? null;
     },
     close: () => pool.end(),
   };

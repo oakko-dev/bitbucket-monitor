@@ -29,7 +29,9 @@ export function createApp({ db, bitbucket, workspace, reconcile, cronSecret, web
       return res.sendStatus(200);
     }
     try {
+      await db.addRepos(row.workspace, [row.repo_slug]);
       await db.upsert(row);
+      await db.setMeta('last_webhook_at', new Date().toISOString());
       res.sendStatus(200);
     } catch (err) {
       log.error(`webhook upsert: ${err.message}`);
@@ -40,9 +42,21 @@ export function createApp({ db, bitbucket, workspace, reconcile, cronSecret, web
 
   app.get('/api/status', async (_req, res) => {
     try {
-      res.json(await db.listStatus());
+      res.json(await db.listStatus(workspace));
     } catch (err) {
       log.error(`status: ${err.message}`);
+      res.sendStatus(503);
+    }
+  });
+
+  app.get('/api/meta', async (_req, res) => {
+    try {
+      res.json({
+        last_webhook_at: await db.getMeta('last_webhook_at'),
+        last_sync_at: await db.getMeta('last_sync_at'),
+      });
+    } catch (err) {
+      log.error(`meta: ${err.message}`);
       res.sendStatus(503);
     }
   });
@@ -59,12 +73,15 @@ export function createApp({ db, bitbucket, workspace, reconcile, cronSecret, web
     res.json(await bitbucket.checkWorkspace(workspace));
   });
 
-  // Vercel Cron sends "Authorization: Bearer $CRON_SECRET" when that env var is set.
-  app.get('/api/reconcile', async (req, res) => {
+  // Vercel Cron sends GET with "Authorization: Bearer $CRON_SECRET". The page's Sync button sends POST with the same header.
+  const sync = async (req, res) => {
     if (!cronSecret || !safeEqual(req.get('Authorization') ?? '', `Bearer ${cronSecret}`)) return res.sendStatus(401);
-    await reconcile();
-    res.json({ ok: true });
-  });
+    const outcome = await reconcile();
+    if (outcome === 'failed') return res.sendStatus(502);
+    res.json({ ok: true, started: outcome === 'ok' });
+  };
+  app.get('/api/reconcile', sync);
+  app.post('/api/sync', sync);
 
   return app;
 }

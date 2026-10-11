@@ -37,8 +37,9 @@ test('upsert only replaces with a newer event, regardless of arrival order', { s
     p.repository.full_name = `acme/${repo}`;
     return mapCommitStatus(p);
   };
-  const stateOf = async () => (await db.listStatus()).find((r) => r.repo === repo).state;
+  const stateOf = async () => (await db.listStatus('acme')).find((r) => r.repo === repo).state;
   try {
+    await db.addRepos('acme', [repo]);
     assert.equal(await db.upsert(withRepo('SUCCESSFUL', '2026-10-10T10:05:00Z')), true);
     assert.equal(await db.upsert(withRepo('INPROGRESS', '2026-10-10T10:00:00Z')), false);
     assert.equal(await db.upsert(withRepo('SUCCESSFUL', '2026-10-10T10:05:00Z')), false);
@@ -74,4 +75,30 @@ test('client retries 429 using Retry-After, then gives up after bounded retries'
 
   const always429 = createClient({ accessToken: 't', fetchImpl: async () => new Response('', { status: 429 }), sleep: async () => {} });
   await assert.rejects(always429.listRepoSlugs('acme'), /HTTP 429/);
+});
+
+// Runs against a real Postgres when TEST_DATABASE_URL is set.
+test('status lists repos with no runs and meta round-trips', { skip: !process.env.TEST_DATABASE_URL }, async () => {
+  const db = await openDb(process.env.TEST_DATABASE_URL);
+  const workspace = `ws-${crypto.randomUUID()}`;
+  try {
+    await db.addRepos(workspace, ['idle-repo', 'busy-repo']);
+    await db.upsert({
+      workspace, repo_slug: 'busy-repo', branch: 'main', latest_state: 'FAILED', environment: 'prod',
+      pipeline_uuid: null, commit_hash: 'abc', source: 'webhook', updated_at: '2026-10-10T10:00:00.000Z',
+    });
+    const rows = await db.listStatus(workspace);
+    const idle = rows.find((r) => r.repo === 'idle-repo');
+    assert.equal(idle.state, null);
+    assert.equal(idle.branch, null);
+    assert.equal(rows.find((r) => r.repo === 'busy-repo').state, 'FAILED');
+
+    const key = `test-${workspace}`;
+    assert.equal(await db.getMeta(key), null);
+    await db.setMeta(key, '2026-10-10T10:05:00.000Z');
+    await db.setMeta(key, '2026-10-10T10:10:00.000Z');
+    assert.equal(await db.getMeta(key), '2026-10-10T10:10:00.000Z');
+  } finally {
+    await db.close();
+  }
 });

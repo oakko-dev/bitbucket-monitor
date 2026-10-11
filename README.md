@@ -63,3 +63,9 @@ node scripts/add-webhooks.mjs
 Check the dry-run output, then add `--apply` to the same command.
 
 To limit the run to some repos, set `REPO_FILTER` to a case-insensitive regex matched against the repo slug. For example, `REPO_FILTER='^wtg-'` covers only repos starting with `wtg-`.
+
+## Sync and status
+
+The page lists every repo in the workspace. A repo with no pipeline run shows "No runs yet". The header shows when the last webhook arrived and when the last sync finished.
+
+**Sync now** runs the same sync as the cron. The page asks for the `CRON_SECRET` once per browser tab and keeps it only for that tab. A wrong key returns 401. If Bitbucket cannot return the repo list, the sync returns 502 and the page says it failed.
