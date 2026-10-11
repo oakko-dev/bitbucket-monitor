@@ -59,3 +59,28 @@ test('the Slack notifier does nothing without a URL', async () => {
   await notify(row('FAILED'));
   assert.equal(called, false);
 });
+
+test('a failed branch first seen by the sync is backfilled without notifying', async () => {
+  const notified = [];
+  const db = fakeDb([null]);
+  const record = createRecorder({ db, notifyFailure: async (r) => notified.push(r) });
+  assert.equal(await record(row('FAILED', { source: 'reconcile' })), true);
+  assert.deepEqual(db.log.history, ['FAILED']);
+  assert.deepEqual(notified, []);
+});
+
+test('a sync that finds a known branch newly FAILED still notifies', async () => {
+  const notified = [];
+  const db = fakeDb(['SUCCESSFUL']);
+  const record = createRecorder({ db, notifyFailure: async (r) => notified.push(r) });
+  await record(row('FAILED', { source: 'reconcile' }));
+  assert.equal(notified.length, 1);
+});
+
+test('a new branch whose first event is a webhook FAILED still notifies', async () => {
+  const notified = [];
+  const db = fakeDb([null]);
+  const record = createRecorder({ db, notifyFailure: async (r) => notified.push(r) });
+  await record(row('FAILED'));
+  assert.equal(notified.length, 1);
+});

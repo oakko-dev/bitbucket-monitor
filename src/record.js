@@ -5,7 +5,9 @@ export function createRecorder({ db, notifyFailure, log = console }) {
     const { applied, previous } = await db.upsert(row);
     if (!applied) return false;
     await db.appendHistory(row);
-    if (row.latest_state === 'FAILED' && previous !== 'FAILED') {
+    // A branch the sync sees for the first time is backfill, not a new failure, so it must not page anyone.
+    const backfill = previous === null && row.source === 'reconcile';
+    if (row.latest_state === 'FAILED' && previous !== 'FAILED' && !backfill) {
       try {
         await notifyFailure(row);
       } catch (err) {
