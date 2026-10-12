@@ -3,229 +3,219 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Deploy Status</title>
+<meta name="robots" content="noindex">
+<title>Deploy Monitor</title>
+<script src="/assets/theme.js"></script>
+<link rel="stylesheet" href="/assets/ui.css">
 <style>
-  :root {
-    --bg: #f5f6f8; --surface: #ffffff; --text: #111827; --muted: #5b6472; --line: #dfe3ea;
-    --ok: #15803d; --ok-bg: #e7f6ec;
-    --fail: #b42318; --fail-bg: #fdecea;
-    --run: #8a5a00; --run-bg: #fdf3dc;
-    --stop: #4b5563; --stop-bg: #eceff3;
-    --focus: #1d4ed8;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --bg: #0e1116; --surface: #161b22; --text: #e6edf3; --muted: #9aa4b2; --line: #2a313c;
-      --ok: #3fb950; --ok-bg: #12301c;
-      --fail: #ff6b63; --fail-bg: #3a1716;
-      --run: #e3b341; --run-bg: #33270e;
-      --stop: #c3cad4; --stop-bg: #252b35;
-      --focus: #79b8ff;
-    }
-  }
-  :root[data-theme="dark"] {
-    --bg: #0e1116; --surface: #161b22; --text: #e6edf3; --muted: #9aa4b2; --line: #2a313c;
-    --ok: #3fb950; --ok-bg: #12301c;
-    --fail: #ff6b63; --fail-bg: #3a1716;
-    --run: #e3b341; --run-bg: #33270e;
-    --stop: #c3cad4; --stop-bg: #252b35;
-    --focus: #79b8ff;
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; background: var(--bg); color: var(--text);
-    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    font-variant-numeric: tabular-nums;
-  }
-  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-  main { max-width: 1120px; margin: 0 auto; padding: 16px 16px 40px; }
+  main { max-width: 1160px; margin: 0 auto; padding: 16px 16px 56px; }
 
-  header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin-bottom: 12px; }
-  h1 { font-size: 18px; font-weight: 650; margin: 0; }
-  .meta { color: var(--muted); font-size: 12px; display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; }
-  #sync {
-    min-height: 36px; padding: 0 14px; border-radius: 6px; border: 1px solid var(--focus);
-    background: var(--focus); color: #fff; font: inherit; font-weight: 600; cursor: pointer;
-  }
-  #sync:disabled { opacity: .6; cursor: wait; }
-  #syncNote { color: var(--muted); font-size: 12px; }
-  .bad { color: var(--fail); font-weight: 600; }
-  button.repo {
-    all: unset; cursor: pointer; font-weight: 600; overflow-wrap: anywhere; border-radius: 4px;
-  }
-  button.repo:hover { text-decoration: underline; }
-  button.repo:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 0 20px; }
+  .actions { display: flex; align-items: center; gap: 8px; }
 
-  /* Opens over the list, so a long list never pushes it out of view. */
-  #history {
-    position: fixed; inset: 0 0 0 auto; margin: 0; height: 100dvh; max-height: 100dvh;
-    width: min(440px, 100vw); max-width: 100vw; padding: 0; border: 0; border-left: 1px solid var(--line);
-    background: var(--surface); color: var(--text);
+  .hero {
+    display: flex; align-items: center; gap: 16px; padding: 20px 22px; margin-bottom: 16px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow);
   }
-  #history::backdrop { background: rgb(0 0 0 / 0.35); }
-  #historyHead {
-    display: flex; align-items: center; justify-content: space-between; gap: 12px;
-    padding: 14px 16px; border-bottom: 1px solid var(--line);
-  }
-  #historyHead h2 { font-size: 15px; margin: 0; overflow-wrap: anywhere; }
-  #historyClose {
-    min-width: 40px; min-height: 40px; border: 1px solid var(--line); border-radius: 6px;
-    background: transparent; color: inherit; font: inherit; cursor: pointer;
-  }
-  #historyBody { overflow-y: auto; padding: 8px 16px 24px; }
-  #historyBody table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  #historyBody th, #historyBody td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
-  #historyBody th { color: var(--muted); font-weight: 600; }
-  #historyBody td:first-child { overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-  @media (max-width: 720px) {
-    #history { inset: auto 0 0 0; width: 100vw; height: 80dvh; max-height: 80dvh; border: 0; border-top: 1px solid var(--line); border-radius: 12px 12px 0 0; }
-  }
+  .hero-icon { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 14px; flex: none; background: var(--idle-bg); color: var(--idle); }
+  .hero-icon svg.i { width: 24px; height: 24px; }
+  .hero.ok .hero-icon { background: var(--ok-bg); color: var(--ok); }
+  .hero.fail .hero-icon { background: var(--fail-bg); color: var(--fail); }
+  .hero.run .hero-icon { background: var(--run-bg); color: var(--run); }
+  .hero h1 { margin: 0; font-size: 22px; letter-spacing: -.02em; line-height: 1.25; }
+  .hero p { margin: 2px 0 0; color: var(--muted); font-size: 14px; }
+  .hero-main { min-width: 0; flex: 1; }
+  .live { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; white-space: nowrap; }
+  .live i { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 50%, transparent); animation: pulse 2.4s ease-out infinite; }
+  .live.stale i { background: var(--fail); animation: none; }
+  @keyframes pulse { 70% { box-shadow: 0 0 0 7px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
 
-  #error {
-    display: none; margin-bottom: 12px; padding: 8px 12px; border-radius: 6px;
-    background: var(--fail-bg); color: var(--fail); font-weight: 500;
-  }
+  .notice { display: flex; gap: 10px; padding: 12px 14px; margin-bottom: 16px; border-radius: 12px; background: var(--run-bg); color: var(--run); font-weight: 500; font-size: 14px; }
+  .notice svg.i { margin-top: 2px; }
+  .notice.fail { background: var(--fail-bg); color: var(--fail); }
+  .notice[hidden] { display: none; }
 
-  .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+  .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
   .stat {
-    display: flex; align-items: center; justify-content: space-between; gap: 8px;
-    min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px;
-    background: var(--surface); color: inherit; font: inherit; text-align: left; cursor: pointer;
+    display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 76px; padding: 14px 16px;
+    border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: inherit; font: inherit; text-align: left;
+    cursor: pointer; transition: border-color .15s, transform .15s, box-shadow .15s;
   }
   .stat:hover { border-color: var(--muted); }
-  .stat .n { font-size: 20px; font-weight: 650; }
-  .stat .l { color: var(--muted); font-size: 12px; }
-  .stat[aria-pressed="true"] { border-color: var(--focus); box-shadow: inset 0 0 0 1px var(--focus); }
+  .stat[aria-pressed="true"] { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
+  .stat .l { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; font-weight: 600; }
+  .stat .n { font-size: 28px; font-weight: 700; letter-spacing: -.02em; line-height: 1; }
   .stat.FAILED .n { color: var(--fail); }
   .stat.INPROGRESS .n { color: var(--run); }
   .stat.SUCCESSFUL .n { color: var(--ok); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .FAILED .dot { background: var(--fail); } .INPROGRESS .dot { background: var(--run); } .SUCCESSFUL .dot { background: var(--ok); }
 
-  .toolbar { margin-bottom: 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
-  .toolbar input[type="search"] { flex: 1 1 220px; }
-  .toggle { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; cursor: pointer; white-space: nowrap; }
-  #scopeCount { white-space: nowrap; font-size: 13px; }
-  .toggle input { width: 16px; height: 16px; }
-  .toolbar input {
-    width: 100%; min-height: 40px; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--line);
-    background: var(--surface); color: var(--text); font: inherit;
-  }
+  .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-bottom: 12px; }
+  .search { position: relative; flex: 1 1 260px; }
+  .search svg.i { position: absolute; left: 13px; top: 14px; color: var(--muted); pointer-events: none; }
+  .search .input { padding-left: 40px; background: var(--surface); }
+  .switch { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; cursor: pointer; font-weight: 500; white-space: nowrap; }
+  .switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .track { width: 38px; height: 22px; border-radius: 999px; background: var(--idle-bg); box-shadow: inset 0 0 0 1px var(--line); position: relative; transition: background-color .15s; flex: none; }
+  .track::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--muted); transition: transform .15s, background-color .15s; }
+  .switch input:checked + .track { background: var(--primary); }
+  .switch input:checked + .track::after { transform: translateX(16px); background: var(--on-primary); }
+  .switch input:focus-visible + .track { outline: 2px solid var(--primary); outline-offset: 2px; }
+  #scopeCount { color: var(--muted); font-size: 13px; }
 
-  .table { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-  .head, .row {
-    display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1.4fr) 112px 120px 96px;
-    gap: 12px; align-items: center; padding: 0 12px 0 14px;
-  }
-  .head {
-    min-height: 32px; background: var(--bg); border-bottom: 1px solid var(--line);
-    color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
-  }
-  .row { position: relative; min-height: 48px; padding-top: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  .table { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); overflow: hidden; }
+  .head, .row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1.5fr) 132px 96px 104px; gap: 16px; align-items: center; padding: 0 18px 0 22px; }
+  .head { min-height: 40px; background: var(--surface-2); border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; font-weight: 650; text-transform: uppercase; letter-spacing: .05em; }
+  .row { position: relative; min-height: 58px; padding-top: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--line); transition: background-color .15s; }
   .row:last-child { border-bottom: 0; }
-  .row::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--stop); }
+  .row:hover { background: var(--surface-2); }
+  .row::before { content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 4px; border-radius: 0 4px 4px 0; background: var(--line); }
   .row.SUCCESSFUL::before { background: var(--ok); }
   .row.FAILED::before { background: var(--fail); }
-  .row.FAILED { background: var(--fail-bg); }
   .row.INPROGRESS::before { background: var(--run); }
+  .row.STOPPED::before { background: var(--idle); }
 
-  .repo { font-weight: 600; overflow-wrap: anywhere; }
-  .branch { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; overflow-wrap: anywhere; }
-  .commit { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
-  .time { color: var(--muted); white-space: nowrap; }
+  button.repo { all: unset; box-sizing: border-box; cursor: pointer; font-weight: 650; overflow-wrap: anywhere; border-radius: 6px; padding: 2px 0; }
+  button.repo:hover { color: var(--primary); text-decoration: underline; text-underline-offset: 3px; }
+  button.repo:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+  .branch { font-size: 13px; overflow-wrap: anywhere; }
+  .branch span { display: inline-block; padding: 2px 8px; border-radius: 6px; background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line); }
+  .commit { color: var(--muted); font-size: 13px; }
+  .time { color: var(--muted); font-size: 13px; white-space: nowrap; text-align: right; }
+  .head > :last-child { text-align: right; }
   .muted { color: var(--muted); }
 
-  .badge {
-    display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 4px;
-    font-size: 12px; font-weight: 650; white-space: nowrap; background: var(--stop-bg); color: var(--stop);
+  .empty { display: grid; justify-items: center; gap: 6px; padding: 48px 16px; text-align: center; color: var(--muted); }
+  .empty svg.i { width: 32px; height: 32px; opacity: .7; }
+  .empty strong { color: var(--text); }
+  .skeleton { height: 58px; margin: 0; border-bottom: 1px solid var(--line); background: linear-gradient(90deg, transparent, var(--surface-2), transparent) var(--surface); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; }
+  @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+  #history {
+    position: fixed; inset: 0 0 0 auto; margin: 0; height: 100dvh; max-height: 100dvh; width: min(460px, 100vw); max-width: 100vw;
+    padding: 0; border: 0; border-left: 1px solid var(--line); background: var(--surface); color: var(--text); box-shadow: var(--shadow);
   }
-  .badge svg { width: 14px; height: 14px; flex: none; }
-  .badge.SUCCESSFUL { background: var(--ok-bg); color: var(--ok); }
-  .badge.FAILED { background: var(--fail); color: #fff; }
-  .badge.INPROGRESS { background: var(--run-bg); color: var(--run); }
-  .badge.NONE { background: transparent; color: var(--muted); border: 1px dashed var(--line); }
-  .row.NONE::before { background: var(--line); }
+  #history::backdrop { background: rgb(5 8 14 / .5); backdrop-filter: blur(2px); }
+  #historyHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--line); }
+  #historyHead h2 { font-size: 16px; margin: 0; overflow-wrap: anywhere; }
+  #historyHead small { display: block; color: var(--muted); font-weight: 500; font-size: 12px; }
+  #historyBody { overflow-y: auto; height: calc(100dvh - 73px); padding: 6px 18px 28px; }
+  .run { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .run .b { font-size: 13px; overflow-wrap: anywhere; }
+  .run .w { color: var(--muted); font-size: 12px; text-align: right; white-space: nowrap; }
+  .run .m { color: var(--muted); font-size: 12px; }
 
-  .empty { padding: 28px 16px; text-align: center; color: var(--muted); }
-
-  @media (max-width: 720px) {
+  @media (max-width: 420px) {
+    #syncLabel { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+    #sync { padding: 0; width: 40px; }
+  }
+  @media (max-width: 760px) {
     .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .head { display: none; }
-    .row {
-      grid-template-columns: minmax(0, 1fr) auto;
-      grid-template-areas: "repo badge" "branch branch" "env time";
-      row-gap: 4px; padding-top: 10px; padding-bottom: 10px;
-    }
+    .hero { flex-wrap: wrap; padding: 16px; }
+    .live { width: 100%; }
+    .row { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "repo badge" "branch branch" "commit time"; row-gap: 6px; padding: 14px 16px 14px 20px; }
     .row .repo { grid-area: repo; }
     .row .badge { grid-area: badge; justify-self: end; }
     .row .branch { grid-area: branch; }
-    .row .commit { grid-area: env; }
-    .row .time { grid-area: time; justify-self: end; font-size: 12px; }
-    .row .commit::before { content: "commit: "; }
+    .row .commit { grid-area: commit; }
+    .row .time { grid-area: time; }
+    #history { inset: auto 0 0 0; width: 100vw; height: 82dvh; max-height: 82dvh; border: 0; border-top: 1px solid var(--line); border-radius: 18px 18px 0 0; }
+    #historyBody { height: calc(82dvh - 73px); }
   }
-  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 </style>
 </head>
 <body>
 <main>
-  <header>
-    <h1>Deploy Status</h1>
-    <div class="meta" aria-live="polite">
-      <span id="lastWebhook">Last webhook: …</span>
-      <span id="lastSync">Last sync: …</span>
-      <span id="rejected" class="bad" hidden></span>
-      <span id="updated">Loading…</span>
-      <button id="sync" type="button">Sync now</button>
-      <span id="syncNote"></span>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg></span>
+      Deploy Monitor
+    </div>
+    <div class="actions">
+      <button id="sync" class="btn sm" type="button">
+        <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.5-4M4 4v4h4M4 13a8 8 0 0 0 14.5 4M20 20v-4h-4"/></svg>
+        <span id="syncLabel">Sync now</span>
+      </button>
+      <button id="theme" class="btn ghost icon sm" type="button"></button>
+      <button id="logout" class="btn ghost icon sm" type="button" aria-label="Sign out" title="Sign out">
+        <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+      </button>
     </div>
   </header>
-  <div id="error" role="alert"></div>
+
+  <section id="hero" class="hero" aria-live="polite">
+    <div id="heroIcon" class="hero-icon"></div>
+    <div class="hero-main">
+      <h1 id="heroTitle">Loading…</h1>
+      <p id="heroSub">Fetching the latest pipeline states.</p>
+    </div>
+    <span id="live" class="live"><i></i><span id="updated">Loading…</span></span>
+  </section>
+
+  <div id="error" class="notice fail" role="alert" hidden></div>
+  <div id="rejected" class="notice" role="status" hidden></div>
+  <p id="syncNote" class="muted" role="status" style="margin:0 0 12px;font-size:13px" hidden></p>
 
   <div class="stats" role="group" aria-label="Filter by state">
-    <button class="stat" data-filter="ALL" aria-pressed="true"><span class="l">All</span><span class="n" id="c-all">0</span></button>
-    <button class="stat FAILED" data-filter="FAILED" aria-pressed="false"><span class="l">Failed</span><span class="n" id="c-FAILED">0</span></button>
-    <button class="stat INPROGRESS" data-filter="INPROGRESS" aria-pressed="false"><span class="l">Running</span><span class="n" id="c-INPROGRESS">0</span></button>
-    <button class="stat SUCCESSFUL" data-filter="SUCCESSFUL" aria-pressed="false"><span class="l">Passed</span><span class="n" id="c-SUCCESSFUL">0</span></button>
+    <button class="stat" data-filter="ALL" aria-pressed="true"><span class="l"><span class="dot"></span>All</span><span class="n" id="c-all">0</span></button>
+    <button class="stat FAILED" data-filter="FAILED" aria-pressed="false"><span class="l"><span class="dot"></span>Failed</span><span class="n" id="c-FAILED">0</span></button>
+    <button class="stat INPROGRESS" data-filter="INPROGRESS" aria-pressed="false"><span class="l"><span class="dot"></span>Running</span><span class="n" id="c-INPROGRESS">0</span></button>
+    <button class="stat SUCCESSFUL" data-filter="SUCCESSFUL" aria-pressed="false"><span class="l"><span class="dot"></span>Passed</span><span class="n" id="c-SUCCESSFUL">0</span></button>
   </div>
 
   <div class="toolbar">
-    <label class="toggle"><input id="showAll" type="checkbox"> Show all repos</label>
-    <span id="scopeCount" class="muted"></span>
-    <input id="search" type="search" placeholder="Filter by repo, branch, or environment" aria-label="Filter by repo, branch, or environment">
+    <div class="search">
+      <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="search" class="input" type="search" placeholder="Search repo or branch" aria-label="Search by repo or branch">
+    </div>
+    <label class="switch"><input id="showAll" type="checkbox"><span class="track"></span>Show all repos</label>
+    <span id="scopeCount"></span>
   </div>
 
   <section class="table" aria-label="Latest pipeline state per repo and branch">
     <div class="head" aria-hidden="true"><div>Repo</div><div>Branch</div><div>State</div><div>Commit</div><div>Updated</div></div>
-    <div id="list"></div>
+    <div id="list"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>
   </section>
 
   <dialog id="history" aria-labelledby="historyTitle">
     <div id="historyHead">
-      <h2 id="historyTitle"></h2>
-      <button id="historyClose" type="button" aria-label="Close recent runs">×</button>
+      <h2><small>Recent runs</small><span id="historyTitle"></span></h2>
+      <button id="historyClose" class="btn ghost icon sm" type="button" aria-label="Close recent runs">
+        <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
     </div>
     <div id="historyBody" aria-live="polite"></div>
   </dialog>
 </main>
 <script>
+  const $ = (id) => document.getElementById(id);
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
   const LABELS = { SUCCESSFUL: 'Passed', FAILED: 'Failed', INPROGRESS: 'Running', STOPPED: 'Stopped', NONE: 'No runs yet' };
-  // A repo with no pipeline run has a null state. Treat it as NONE everywhere below.
   const stateOf = (r) => r.state ?? 'NONE';
-  // Text plus shape, so state is not carried by color alone.
+  // Text plus shape, so state is never carried by color alone.
   const ICONS = {
     SUCCESSFUL: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M6.2 11.3 2.9 8l1.1-1.1 2.2 2.2 5.8-5.8 1.1 1.1z"/></svg>',
     FAILED: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M4 2.6 8 6.6l4-4 1.4 1.4-4 4 4 4L12 13.4l-4-4-4 4L2.6 12l4-4-4-4z"/></svg>',
     INPROGRESS: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="6 3"/></svg>',
-    STOPPED: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" fill="currentColor"/></svg>',
+    STOPPED: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" rx="1.5" fill="currentColor"/></svg>',
   };
-  // Failures first, then running, then stopped and passed. Newest first within a group.
+  const HERO_ICONS = {
+    ok: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8 12.5 2.8 2.8L16.5 9.5"/></svg>',
+    fail: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17.5v.01"/></svg>',
+    run: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke-dasharray="4 3"/><path d="M12 7v5l3 2"/></svg>',
+    idle: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12h8"/></svg>',
+  };
+  const EMPTY_ICON = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg>';
   const RANK = { FAILED: 0, INPROGRESS: 1, STOPPED: 2, SUCCESSFUL: 3, NONE: 4 };
 
   let rows = [];
   let stateFilter = 'ALL';
   let query = '';
   let showAll = false;
+  let loaded = false;
 
-  // By default a repo is shown only if its webhook is installed or it has run a pipeline.
   const isActive = (r) => Boolean(r.has_webhook) || r.state != null;
   const scope = () => (showAll ? rows : rows.filter(isActive));
 
@@ -238,12 +228,52 @@
     return `${Math.floor(s / 86400)}d ago`;
   }
 
+  const toLogin = () => location.replace('/login');
+
   function visible() {
     const q = query.trim().toLowerCase();
     return scope()
       .filter((r) => stateFilter === 'ALL' || stateOf(r) === stateFilter)
-      .filter((r) => !q || [r.repo, r.branch, r.environment].some((f) => String(f ?? '').toLowerCase().includes(q)))
+      .filter((r) => !q || [r.repo, r.branch].some((f) => String(f ?? '').toLowerCase().includes(q)))
       .sort((a, b) => (RANK[stateOf(a)] ?? 9) - (RANK[stateOf(b)] ?? 9) || String(b.updated_at ?? '').localeCompare(String(a.updated_at ?? '')));
+  }
+
+  function renderHero(counts) {
+    const hero = $('hero');
+    let kind = 'idle';
+    let title = 'No pipeline runs yet';
+    let sub = 'The first webhook or sync will fill this in.';
+    if (counts.FAILED > 0) {
+      kind = 'fail';
+      title = `${counts.FAILED} ${counts.FAILED === 1 ? 'pipeline is' : 'pipelines are'} failing`;
+      sub = counts.INPROGRESS > 0 ? `${counts.INPROGRESS} more running. Failures are listed first.` : 'Failures are listed first.';
+    } else if (counts.INPROGRESS > 0) {
+      kind = 'run';
+      title = `${counts.INPROGRESS} ${counts.INPROGRESS === 1 ? 'pipeline' : 'pipelines'} running`;
+      sub = `${counts.SUCCESSFUL} passed, nothing failing.`;
+    } else if (counts.SUCCESSFUL > 0) {
+      kind = 'ok';
+      title = 'All pipelines passing';
+      sub = `${counts.SUCCESSFUL} ${counts.SUCCESSFUL === 1 ? 'branch is' : 'branches are'} green.`;
+    }
+    hero.className = `hero ${kind}`;
+    $('heroIcon').innerHTML = HERO_ICONS[kind];
+    $('heroTitle').textContent = title;
+    $('heroSub').textContent = sub;
+  }
+
+  function renderRow(r) {
+    const state = stateOf(r);
+    const hasRun = r.updated_at != null;
+    const stamp = hasRun ? new Date(r.updated_at).toLocaleString() : '';
+    const when = hasRun ? `<time datetime="${esc(r.updated_at)}">${esc(ago(r.updated_at))}</time>` : '<span class="muted">—</span>';
+    return `<article class="row ${esc(state)}">` +
+      `<button class="repo" type="button" data-repo="${esc(r.repo)}" title="Show recent runs">${esc(r.repo)}</button>` +
+      `<div class="branch mono">${r.branch ? `<span>${esc(r.branch)}</span>` : '<span class="muted">—</span>'}</div>` +
+      `<div><span class="badge ${esc(state)}">${ICONS[state] ?? ''}${esc(LABELS[state] ?? state)}</span></div>` +
+      `<div class="commit mono" title="${esc(r.commit_hash ?? '')}">${esc((r.commit_hash ?? '').slice(0, 7) || '—')}</div>` +
+      `<div class="time" title="${esc(stamp)}">${when}</div>` +
+    `</article>`;
   }
 
   function render() {
@@ -252,90 +282,75 @@
     inScope.forEach((r) => { if (stateOf(r) in counts) counts[stateOf(r)]++; });
     const repoCount = new Set(rows.map((r) => r.repo)).size;
     const shownRepos = new Set(inScope.map((r) => r.repo)).size;
-    document.getElementById('scopeCount').textContent = showAll
-      ? `${repoCount} repos`
-      : `${shownRepos} of ${repoCount} repos with a webhook or a run`;
-    document.getElementById('c-all').textContent = counts.ALL;
-    document.getElementById('c-FAILED').textContent = counts.FAILED;
-    document.getElementById('c-INPROGRESS').textContent = counts.INPROGRESS;
-    document.getElementById('c-SUCCESSFUL').textContent = counts.SUCCESSFUL;
+    $('scopeCount').textContent = showAll ? `${repoCount} repos` : `${shownRepos} of ${repoCount} repos have a webhook or a run`;
+    for (const key of ['FAILED', 'INPROGRESS', 'SUCCESSFUL']) $(`c-${key}`).textContent = counts[key];
+    $('c-all').textContent = counts.ALL;
+    if (!loaded) return;
+    renderHero(counts);
 
     const list = visible();
-    const el = document.getElementById('list');
+    const el = $('list');
     if (list.length === 0) {
-      el.innerHTML = `<div class="empty">${rows.length === 0 ? 'No deploys yet. Waiting for the first pipeline event.' : 'Nothing matches this filter.'}</div>`;
+      const none = rows.length === 0;
+      el.innerHTML = `<div class="empty">${EMPTY_ICON}<strong>${none ? 'No deploys yet' : 'Nothing matches'}</strong>` +
+        `<span>${none ? 'Waiting for the first pipeline event.' : 'Try a different filter or search.'}</span></div>`;
       return;
     }
-    el.innerHTML = list.map((r) => {
-      const state = stateOf(r);
-      const hasRun = r.updated_at != null;
-      const stamp = hasRun ? new Date(r.updated_at).toLocaleString() : '';
-      const when = hasRun
-        ? `<time datetime="${esc(r.updated_at)}">${esc(ago(r.updated_at))}</time>`
-        : '<span class="muted">—</span>';
-      return `<article class="row ${esc(state)}">` +
-        `<button class="repo" type="button" data-repo="${esc(r.repo)}" title="Show recent runs">${esc(r.repo)}</button>` +
-        `<div class="branch">${esc(r.branch ?? '—')}</div>` +
-        `<div><span class="badge ${esc(state)}">${state === 'NONE' ? '' : (ICONS[state] ?? '')}${esc(LABELS[state] ?? state)}</span></div>` +
-        `<div class="commit" title="${esc(r.commit_hash ?? '')}">${esc((r.commit_hash ?? '').slice(0, 7) || '—')}</div>` +
-        `<div class="time" title="${esc(stamp)}">${when}</div>` +
-      `</article>`;
-    }).join('');
+    el.innerHTML = list.map(renderRow).join('');
   }
 
   // The server returns timestamps as ISO strings, or null when never set.
   function showMeta(meta) {
-    const set = (id, label, iso) => {
-      document.getElementById(id).textContent = iso ? `${label}: ${ago(iso)}` : `${label}: never`;
-    };
-    set('lastWebhook', 'Last webhook', meta.last_webhook_at);
-    set('lastSync', 'Last sync', meta.last_sync_at);
-    const rejected = document.getElementById('rejected');
+    const bits = [];
+    bits.push(meta.last_webhook_at ? `Webhook ${ago(meta.last_webhook_at)}` : 'No webhook yet');
+    bits.push(meta.last_sync_at ? `Synced ${ago(meta.last_sync_at)}` : 'Never synced');
+    $('live').title = bits.join(' · ');
+    const rejected = $('rejected');
     if (meta.last_rejected_at) {
       rejected.hidden = false;
       rejected.textContent = `Webhook rejected ${ago(meta.last_rejected_at)}: ${meta.last_rejected_reason ?? 'unknown reason'}`;
     } else {
       rejected.hidden = true;
     }
+    $('updated').textContent = `${bits[0]} · ${bits[1]}`;
   }
 
-  // Shows the last 20 state changes for one repo, across its branches.
   async function showHistory(repo) {
-    const dialog = document.getElementById('history');
-    document.getElementById('historyTitle').textContent = `Recent runs: ${repo}`;
-    const body = document.getElementById('historyBody');
-    body.textContent = 'Loading…';
+    const dialog = $('history');
+    $('historyTitle').textContent = repo;
+    const body = $('historyBody');
+    body.innerHTML = '<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>';
     if (!dialog.open) dialog.showModal();
     try {
       const res = await fetch(`/api/history/${encodeURIComponent(repo)}`, { cache: 'no-store' });
+      if (res.status === 401) return toLogin();
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const entries = await res.json();
       if (entries.length === 0) {
-        body.textContent = 'No recorded runs yet.';
+        body.innerHTML = `<div class="empty">${EMPTY_ICON}<strong>No recorded runs yet</strong></div>`;
         return;
       }
-      body.innerHTML = '<table><thead><tr><th>Branch</th><th>State</th><th>Environment</th><th>When</th></tr></thead><tbody>' +
-        entries.map((e) => `<tr><td>${esc(e.branch)}</td><td>${esc(LABELS[e.state] ?? e.state)}</td>` +
-          `<td>${esc(e.environment)}</td><td><time datetime="${esc(e.updated_at)}">${esc(ago(e.updated_at))}</time></td></tr>`).join('') +
-        '</tbody></table>';
+      body.innerHTML = entries.map((e) =>
+        `<div class="run"><div class="b mono">${esc(e.branch)}</div>` +
+        `<div><span class="badge ${esc(e.state)}">${ICONS[e.state] ?? ''}${esc(LABELS[e.state] ?? e.state)}</span></div>` +
+        `<div class="m">${esc(e.environment)}</div>` +
+        `<div class="w"><time datetime="${esc(e.updated_at)}" title="${esc(new Date(e.updated_at).toLocaleString())}">${esc(ago(e.updated_at))}</time></div></div>`).join('');
     } catch (err) {
-      body.textContent = `Could not load history (${err.message}).`;
+      body.innerHTML = `<div class="empty"><strong>Could not load history</strong><span>${esc(err.message)}</span></div>`;
     }
   }
 
-  document.getElementById('list').addEventListener('click', (e) => {
+  $('list').addEventListener('click', (e) => {
     const repo = e.target.closest('.repo');
     if (repo) showHistory(repo.dataset.repo);
   });
-  document.getElementById('historyClose').addEventListener('click', () => document.getElementById('history').close());
-  // Clicking the backdrop closes the dialog. Clicks inside it land on its children, so they do not match.
-  document.getElementById('history').addEventListener('click', (e) => {
-    if (e.target.id === 'history') e.target.close();
-  });
+  $('historyClose').addEventListener('click', () => $('history').close());
+  $('history').addEventListener('click', (e) => { if (e.target.id === 'history') e.target.close(); });
 
   async function loadMeta() {
     try {
       const res = await fetch('/api/meta', { cache: 'no-store' });
+      if (res.status === 401) return toLogin();
       if (res.ok) showMeta(await res.json());
     } catch {
       // The status refresh already reports connection errors.
@@ -343,16 +358,16 @@
   }
 
   async function syncNow() {
-    const button = document.getElementById('sync');
-    const note = document.getElementById('syncNote');
+    const button = $('sync');
+    const note = $('syncNote');
+    const label = $('syncLabel');
     button.disabled = true;
+    label.textContent = 'Syncing…';
+    note.hidden = false;
     note.textContent = 'Syncing…';
     try {
       const res = await fetch('/api/sync', { method: 'POST', headers: { 'X-Requested-With': 'dashboard' } });
-      if (res.status === 401) {
-        note.textContent = 'Not signed in. Reload the page and sign in.';
-        return;
-      }
+      if (res.status === 401) return toLogin();
       if (res.status === 502) {
         note.textContent = 'Sync failed. Bitbucket did not return the repo list. Check the server log.';
         return;
@@ -361,7 +376,7 @@
       const { outcome } = await res.json();
       note.textContent = {
         ok: 'Sync finished.',
-        partial: 'Synced part of the repos. Click again to continue.',
+        partial: 'Synced part of the repos. Click Sync now again to continue.',
         busy: 'A sync is already running.',
       }[outcome] ?? 'Sync finished.';
       await Promise.all([load(), loadMeta()]);
@@ -369,23 +384,30 @@
       note.textContent = `Sync failed (${err.message}).`;
     } finally {
       button.disabled = false;
+      label.textContent = 'Sync now';
     }
   }
+  $('sync').addEventListener('click', syncNow);
 
-  document.getElementById('sync').addEventListener('click', syncNow);
+  $('logout').addEventListener('click', async () => {
+    try { await fetch('/logout', { method: 'POST', headers: { 'X-Requested-With': 'dashboard' } }); } finally { toLogin(); }
+  });
 
   async function load() {
-    const error = document.getElementById('error');
+    const error = $('error');
     try {
       const res = await fetch('/api/status', { cache: 'no-store' });
+      if (res.status === 401) return toLogin();
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       rows = await res.json();
-      error.style.display = 'none';
-      document.getElementById('updated').textContent = `Updated ${new Date().toLocaleTimeString()} · every 15 s`;
+      loaded = true;
+      error.hidden = true;
+      $('live').classList.remove('stale');
       render();
     } catch (err) {
       error.textContent = `Could not refresh (${err.message}). Showing the last data loaded.`;
-      error.style.display = 'block';
+      error.hidden = false;
+      $('live').classList.add('stale');
     }
   }
 
@@ -394,8 +416,8 @@
     document.querySelectorAll('.stat').forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
     render();
   }));
-  document.getElementById('search').addEventListener('input', (e) => { query = e.target.value; render(); });
-  document.getElementById('showAll').addEventListener('change', (e) => { showAll = e.target.checked; render(); });
+  $('search').addEventListener('input', (e) => { query = e.target.value; render(); });
+  $('showAll').addEventListener('change', (e) => { showAll = e.target.checked; render(); });
 
   load();
   loadMeta();

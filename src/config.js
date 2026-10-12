@@ -15,6 +15,7 @@ export function loadConfig() {
     accessToken: required('BITBUCKET_ACCESS_TOKEN'),
     webhookSecret: process.env.BITBUCKET_WEBHOOK_SECRET || null,
     webhookPathSecret: required('WEBHOOK_PATH_SECRET'),
+    dashboardUsername: process.env.DASHBOARD_USERNAME || 'admin',
     dashboardPassword: required('DASHBOARD_PASSWORD'),
     cronSecret: process.env.CRON_SECRET || null,
     reconcileIntervalMs: Number(process.env.RECONCILE_INTERVAL_MS ?? 600000),

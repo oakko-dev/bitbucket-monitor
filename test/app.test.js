@@ -22,6 +22,7 @@ async function serve(overrides = {}) {
     cronSecret: 'cron',
     webhookSecret: null,
     webhookPathSecret: 'path',
+    dashboardUsername: 'ops',
     dashboardPassword: 'letmein',
     log: { warn: () => {}, error: () => {} },
     ...overrides,
@@ -31,45 +32,105 @@ async function serve(overrides = {}) {
   return { base, recorded, outcomes, close: () => new Promise((r) => server.close(r)) };
 }
 
-const basic = (password, user = 'anyone') => `Basic ${Buffer.from(`${user}:${password}`).toString('base64')}`;
+const JSON_HEADERS = { 'Content-Type': 'application/json', 'X-Requested-With': 'dashboard' };
+
+async function signIn(base, username = 'ops', password = 'letmein') {
+  const res = await fetch(`${base}/login`, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ username, password }) });
+  const cookie = res.headers.get('set-cookie')?.split(';')[0];
+  return { res, cookie };
+}
+
 const statusEvent = { repository: { full_name: 'acme/web' }, commit_status: { state: 'SUCCESSFUL', refname: 'main', key: 'some-other-ci' } };
 
-test('the dashboard and its data routes need the login', async () => {
+test('pages send anonymous visitors to the login form and data routes answer 401', async () => {
   const s = await serve();
   try {
-    for (const path of ['/', '/api/status', '/api/history/web', '/api/meta']) {
-      const anon = await fetch(s.base + path);
-      assert.equal(anon.status, 401, path);
-      assert.match(anon.headers.get('www-authenticate'), /^Basic/);
-      assert.equal((await fetch(s.base + path, { headers: { Authorization: basic('wrong') } })).status, 401, path);
-      assert.equal((await fetch(s.base + path, { headers: { Authorization: basic('letmein') } })).status, 200, path);
+    const page = await fetch(`${s.base}/`, { redirect: 'manual' });
+    assert.equal(page.status, 302);
+    assert.equal(page.headers.get('location'), '/login');
+    for (const path of ['/api/status', '/api/history/web', '/api/meta']) {
+      assert.equal((await fetch(s.base + path)).status, 401, path);
     }
+    assert.equal((await fetch(`${s.base}/login`)).status, 200);
+    assert.equal((await fetch(`${s.base}/assets/ui.css`)).status, 200);
   } finally { await s.close(); }
 });
 
-test('Sync now needs the login and the page header, and ignores the cron secret', async () => {
+test('a correct username and password sets a session that opens the dashboard', async () => {
   const s = await serve();
   try {
+    const { res, cookie } = await signIn(s.base);
+    assert.equal(res.status, 200);
+    const flags = res.headers.get('set-cookie');
+    assert.match(flags, /HttpOnly/);
+    assert.match(flags, /SameSite=Lax/);
+    for (const path of ['/', '/api/status', '/api/history/web', '/api/meta']) {
+      assert.equal((await fetch(s.base + path, { headers: { Cookie: cookie } })).status, 200, path);
+    }
+    const again = await fetch(`${s.base}/login`, { headers: { Cookie: cookie }, redirect: 'manual' });
+    assert.equal(again.status, 302);
+  } finally { await s.close(); }
+});
+
+test('a wrong username, a wrong password, or a forged cookie does not get in', async () => {
+  const s = await serve();
+  try {
+    for (const [user, pass] of [['ops', 'wrong'], ['root', 'letmein'], ['', '']]) {
+      const { res, cookie } = await signIn(s.base, user, pass);
+      assert.equal(res.status, 401, `${user}/${pass}`);
+      assert.equal(cookie, undefined);
+    }
+    for (const forged of ['session=9999999999.AAAA', 'session=garbage', 'session=1.x']) {
+      assert.equal((await fetch(`${s.base}/api/status`, { headers: { Cookie: forged } })).status, 401, forged);
+    }
+    const noHeader = await fetch(`${s.base}/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'ops', password: 'letmein' }) });
+    assert.equal(noHeader.status, 400);
+  } finally { await s.close(); }
+});
+
+test('repeated wrong passwords are throttled, even for the right password afterwards', async () => {
+  const s = await serve();
+  try {
+    for (let i = 0; i < 8; i++) assert.equal((await signIn(s.base, 'ops', 'nope')).res.status, 401);
+    assert.equal((await signIn(s.base, 'ops', 'nope')).res.status, 429);
+    assert.equal((await signIn(s.base)).res.status, 429);
+  } finally { await s.close(); }
+});
+
+test('signing out clears the session cookie', async () => {
+  const s = await serve();
+  try {
+    const { cookie } = await signIn(s.base);
+    const out = await fetch(`${s.base}/logout`, { method: 'POST', headers: { ...JSON_HEADERS, Cookie: cookie } });
+    assert.equal(out.status, 200);
+    assert.match(out.headers.get('set-cookie'), /Max-Age=0/);
+  } finally { await s.close(); }
+});
+
+test('Sync now needs the session and the page header, and ignores the cron secret', async () => {
+  const s = await serve();
+  try {
+    const { cookie } = await signIn(s.base);
     const post = (headers) => fetch(`${s.base}/api/sync`, { method: 'POST', headers });
     assert.equal((await post({ 'X-Requested-With': 'dashboard' })).status, 401);
     assert.equal((await post({ Authorization: 'Bearer cron', 'X-Requested-With': 'dashboard' })).status, 401);
-    assert.equal((await post({ Authorization: basic('letmein') })).status, 403);
-    const ok = await post({ Authorization: basic('letmein'), 'X-Requested-With': 'dashboard' });
+    assert.equal((await post({ Cookie: cookie })).status, 403);
+    const ok = await post({ Cookie: cookie, 'X-Requested-With': 'dashboard' });
     assert.equal(ok.status, 200);
     assert.deepEqual(await ok.json(), { ok: true, outcome: 'ok' });
     s.outcomes.reconcile = 'partial';
-    const partial = await post({ Authorization: basic('letmein'), 'X-Requested-With': 'dashboard' });
-    assert.equal((await partial.json()).outcome, 'partial');
+    assert.equal((await (await post({ Cookie: cookie, 'X-Requested-With': 'dashboard' })).json()).outcome, 'partial');
     s.outcomes.reconcile = 'failed';
-    assert.equal((await post({ Authorization: basic('letmein'), 'X-Requested-With': 'dashboard' })).status, 502);
+    assert.equal((await post({ Cookie: cookie, 'X-Requested-With': 'dashboard' })).status, 502);
   } finally { await s.close(); }
 });
 
-test('the cron route takes only the cron secret, not the dashboard login', async () => {
+test('the cron route takes only the cron secret, not a dashboard session', async () => {
   const s = await serve();
   try {
     assert.equal((await fetch(`${s.base}/api/reconcile`)).status, 401);
-    assert.equal((await fetch(`${s.base}/api/reconcile`, { headers: { Authorization: basic('letmein') } })).status, 401);
+    const { cookie } = await signIn(s.base);
+    assert.equal((await fetch(`${s.base}/api/reconcile`, { headers: { Cookie: cookie } })).status, 401);
     assert.equal((await fetch(`${s.base}/api/reconcile`, { headers: { Authorization: 'Bearer cron' } })).status, 200);
   } finally { await s.close(); }
 });

@@ -11,7 +11,7 @@ Deploy status dashboard for a Bitbucket Cloud workspace. A commit-status webhook
    - `WEBHOOK_PATH_SECRET` (required): a long random string, e.g. `openssl rand -hex 24`
    - `BITBUCKET_WEBHOOK_SECRET` (optional): when set, every delivery must carry a valid `X-Hub-Signature` HMAC-SHA256
    - `DATABASE_URL` (required): a Postgres connection string
-   - `DASHBOARD_PASSWORD` (required): the password for the dashboard login. Any username works. Generate one with `openssl rand -hex 24`
+   - `DASHBOARD_USERNAME` (default `admin`) and `DASHBOARD_PASSWORD` (required): the dashboard login. Generate the password with `openssl rand -hex 24`. Changing either signs everyone out
    - `CRON_SECRET` (Vercel only): Vercel Cron sends it to `/api/reconcile`. The Sync button does not use it
    - `RECONCILE_BUDGET_MS` (default 40000 on Vercel, no limit elsewhere): a sync stops starting new repos after this long and resumes after the last repo done on the next run
    - `PORT` (default 3000), `RECONCILE_INTERVAL_MS` (default 600000)
@@ -28,7 +28,7 @@ set -a; . ./.env; set +a
 npm start
 ```
 
-Open `http://localhost:3000/` and sign in with `DASHBOARD_PASSWORD`. The page reloads `/api/status` every 15 seconds.
+Open `http://localhost:3000/` and sign in with `DASHBOARD_USERNAME` and `DASHBOARD_PASSWORD`. The page reloads `/api/status` every 15 seconds.
 
 Run the tests with `npm test`.
 

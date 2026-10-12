@@ -3,6 +3,7 @@ import path from 'node:path';
 import express from 'express';
 import { COMMIT_STATUS_EVENTS, mapPipeline, parseStatusEvent, verifySignature } from './ingest.js';
 import { createClient } from './bitbucket.js';
+import { createLoginThrottle, createSessions, readCookie } from './session.js';
 import { createReconciler } from './reconcile.js';
 import { createFailureNotifier, createRecorder } from './record.js';
 
@@ -12,19 +13,22 @@ function safeEqual(a, b) {
   return crypto.timingSafeEqual(ha, hb);
 }
 
-export function createApp({ db, record, bitbucket, workspace, reconcile, cronSecret, webhookSecret, webhookPathSecret, dashboardPassword, log = console }) {
+export function createApp({ db, record, bitbucket, workspace, reconcile, cronSecret, webhookSecret, webhookPathSecret, dashboardUsername, dashboardPassword, log = console }) {
   const app = express();
+  app.set('trust proxy', 1);
   app.use(express.json({ limit: '1mb', verify: (req, _res, buf) => { req.rawBody = buf; } }));
 
-  // Browsers prompt for this once and then attach it to every request to the site, the Sync button's included.
-  // The username is ignored.
+  const sessions = createSessions({ secret: `${dashboardUsername}:${dashboardPassword}` });
+  const throttle = createLoginThrottle();
+  const publicDir = path.join(import.meta.dirname, 'public');
+  const COOKIE = 'session';
+
+  const cookieFlags = (req) => `Path=/; HttpOnly; SameSite=Lax${req.secure ? '; Secure' : ''}`;
+  const loggedIn = (req) => sessions.verify(readCookie(req.get('Cookie'), COOKIE));
+  // Pages send people to the login form. Data routes answer 401 so the page can do the same.
   const requireLogin = (req, res, next) => {
-    const header = req.get('Authorization') ?? '';
-    const decoded = header.startsWith('Basic ') ? Buffer.from(header.slice(6), 'base64').toString() : '';
-    const password = decoded.slice(decoded.indexOf(':') + 1);
-    if (decoded.includes(':') && safeEqual(password, dashboardPassword)) return next();
-    res.set('WWW-Authenticate', 'Basic realm="bitbucket-monitor", charset="UTF-8"');
-    return res.sendStatus(401);
+    if (loggedIn(req)) return next();
+    return req.path.startsWith('/api/') ? res.sendStatus(401) : res.redirect('/login');
   };
 
   // A rejected delivery is recorded, so a misconfigured webhook shows on the page instead of failing silently.
@@ -94,12 +98,34 @@ export function createApp({ db, record, bitbucket, workspace, reconcile, cronSec
     }
   });
 
-  app.get('/', requireLogin, (_req, res) => res.sendFile(path.join(import.meta.dirname, 'public', 'index.html')));
+  app.use('/assets', express.static(path.join(publicDir, 'assets')));
+  app.get('/', requireLogin, (_req, res) => res.sendFile(path.join(publicDir, 'index.html')));
+
+  app.get('/login', (req, res) => (loggedIn(req) ? res.redirect('/') : res.sendFile(path.join(publicDir, 'login.html'))));
+  // A cross-site form cannot send JSON or a custom header, so this also rejects login CSRF.
+  app.post('/login', (req, res) => {
+    if (req.get('X-Requested-With') !== 'dashboard' || typeof req.body?.password !== 'string') return res.sendStatus(400);
+    if (throttle.blocked(req.ip)) return res.status(429).json({ error: 'Too many attempts. Try again in a few minutes.' });
+    const userOk = safeEqual(req.body.username ?? '', dashboardUsername);
+    const passOk = safeEqual(req.body.password, dashboardPassword);
+    if (!(userOk && passOk)) {
+      throttle.fail(req.ip);
+      return res.status(401).json({ error: 'Wrong username or password.' });
+    }
+    throttle.clear(req.ip);
+    res.set('Set-Cookie', `${COOKIE}=${sessions.issue()}; Max-Age=${sessions.maxAgeSeconds}; ${cookieFlags(req)}`);
+    return res.json({ ok: true });
+  });
+  app.post('/logout', (req, res) => {
+    if (req.get('X-Requested-With') !== 'dashboard') return res.sendStatus(400);
+    res.set('Set-Cookie', `${COOKIE}=; Max-Age=0; ${cookieFlags(req)}`);
+    return res.json({ ok: true });
+  });
 
   // Gated by the path secret so the workspace name is not public.
   app.get('/check/:secret', (req, res) => {
     if (!safeEqual(req.params.secret, webhookPathSecret)) return res.sendStatus(403);
-    res.sendFile(path.join(import.meta.dirname, 'public', 'check.html'));
+    res.sendFile(path.join(publicDir, 'check.html'));
   });
   app.get('/api/check/:secret', async (req, res) => {
     if (!safeEqual(req.params.secret, webhookPathSecret)) return res.sendStatus(403);
@@ -146,6 +172,7 @@ export function buildApp(config, db) {
     cronSecret: config.cronSecret,
     webhookSecret: config.webhookSecret,
     webhookPathSecret: config.webhookPathSecret,
+    dashboardUsername: config.dashboardUsername,
     dashboardPassword: config.dashboardPassword,
   });
   app.locals.reconcile = reconcile;

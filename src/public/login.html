@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Sign in · Deploy Monitor</title>
+<script src="/assets/theme.js"></script>
+<link rel="stylesheet" href="/assets/ui.css">
+<style>
+  .shell { min-height: 100dvh; display: grid; place-items: center; padding: 24px 16px; position: relative; }
+  .corner { position: absolute; top: 16px; right: 16px; }
+  .panel { width: min(100%, 400px); padding: 32px 28px 28px; }
+  .panel .brand { margin-bottom: 24px; }
+  h1 { font-size: 24px; line-height: 1.25; letter-spacing: -.02em; margin: 0 0 6px; }
+  .lede { margin: 0 0 24px; color: var(--muted); }
+  form { display: grid; gap: 16px; }
+  .alert {
+    display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 10px;
+    background: var(--fail-bg); color: var(--fail); font-weight: 500; font-size: 14px;
+  }
+  .alert[hidden] { display: none; }
+  .alert svg { margin-top: 2px; }
+  .submit { width: 100%; margin-top: 4px; }
+  .foot { margin: 20px 0 0; text-align: center; color: var(--muted); font-size: 13px; }
+  @media (max-width: 420px) { .panel { padding: 24px 20px 20px; } }
+</style>
+</head>
+<body>
+<div class="shell">
+  <button id="theme" class="btn ghost icon corner" type="button"></button>
+  <main class="card panel">
+    <div class="brand">
+      <span class="brand-mark"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg></span>
+      Deploy Monitor
+    </div>
+    <h1>Welcome back</h1>
+    <p class="lede">Sign in to see your pipeline status.</p>
+
+    <form id="form" novalidate>
+      <div id="error" class="alert" role="alert" hidden>
+        <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.01"/></svg>
+        <span id="errorText"></span>
+      </div>
+      <div class="field">
+        <label for="username">Username</label>
+        <input id="username" class="input" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus>
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <div class="input-wrap">
+          <input id="password" class="input" name="password" type="password" autocomplete="current-password" required>
+          <button id="reveal" class="reveal" type="button" aria-label="Show password" aria-pressed="false">
+            <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
+      </div>
+      <button id="submit" class="btn submit" type="submit"><span id="submitLabel">Sign in</span></button>
+    </form>
+    <p class="foot">Your session stays signed in for 7 days on this device.</p>
+  </main>
+</div>
+<script>
+  const form = document.getElementById('form');
+  const username = document.getElementById('username');
+  const password = document.getElementById('password');
+  const error = document.getElementById('error');
+  const submit = document.getElementById('submit');
+  const label = document.getElementById('submitLabel');
+  const reveal = document.getElementById('reveal');
+
+  reveal.addEventListener('click', () => {
+    const show = password.type === 'password';
+    password.type = show ? 'text' : 'password';
+    reveal.setAttribute('aria-pressed', String(show));
+    reveal.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+  });
+
+  function fail(message, field) {
+    document.getElementById('errorText').textContent = message;
+    error.hidden = false;
+    field.focus();
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    error.hidden = true;
+    if (!username.value.trim()) return fail('Enter your username.', username);
+    if (!password.value) return fail('Enter your password.', password);
+    submit.disabled = true;
+    submit.setAttribute('aria-busy', 'true');
+    label.textContent = 'Signing in…';
+    try {
+      const res = await fetch('/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'dashboard' },
+        body: JSON.stringify({ username: username.value.trim(), password: password.value }),
+      });
+      if (res.ok) {
+        location.replace('/');
+        return;
+      }
+      const body = await res.json().catch(() => ({}));
+      password.value = '';
+      fail(body.error ?? `Sign in failed (HTTP ${res.status}).`, res.status === 401 ? password : username);
+    } catch (err) {
+      fail(`Could not reach the server (${err.message}).`, username);
+    }
+    submit.disabled = false;
+    submit.removeAttribute('aria-busy');
+    label.textContent = 'Sign in';
+  });
+</script>
+</body>
+</html>
