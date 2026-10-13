@@ -13,7 +13,7 @@ function safeEqual(a, b) {
   return crypto.timingSafeEqual(ha, hb);
 }
 
-export function createApp({ db, record, bitbucket, workspace, reconcile, cronSecret, webhookSecret, webhookPathSecret, dashboardUsername, dashboardPassword, log = console }) {
+export function createApp({ db, record, bitbucket, workspace, reconcile, cronSecret, webhookSecret, webhookPathSecret, dashboardUsername, dashboardPassword, log = console, now = Date.now }) {
   const app = express();
   app.set('trust proxy', 1);
   app.use(express.json({ limit: '1mb', verify: (req, _res, buf) => { req.rawBody = buf; } }));
@@ -32,9 +32,14 @@ export function createApp({ db, record, bitbucket, workspace, reconcile, cronSec
   };
 
   // A rejected delivery is recorded, so a misconfigured webhook shows on the page instead of failing silently.
+  // Anyone can post to the webhook route, so a flood of bad deliveries writes at most once a minute.
+  let lastRejectWrite = -Infinity;
   const reject = async (res, status, reason) => {
-    await db.setMeta('last_rejected_at', new Date().toISOString());
-    await db.setMeta('last_rejected_reason', reason);
+    if (now() - lastRejectWrite >= 60_000) {
+      lastRejectWrite = now();
+      await db.setMeta('last_rejected_at', new Date().toISOString());
+      await db.setMeta('last_rejected_reason', reason);
+    }
     return res.sendStatus(status);
   };
 
@@ -49,12 +54,15 @@ export function createApp({ db, record, bitbucket, workspace, reconcile, cronSec
       log.warn('webhook: unmappable commit_status payload');
       return res.sendStatus(200);
     }
+    // Rows are stored under the configured workspace, so the page finds them even when the slug's case differs.
+    if (target.workspace.toLowerCase() !== workspace.toLowerCase()) return reject(res, 403, 'delivery is for another workspace');
+    const { repo_slug, branch } = target;
     try {
-      await db.addRepos(target.workspace, [target.repo_slug]);
+      await db.addRepos(workspace, [repo_slug]);
       // A delivery proves the webhook is installed on this repo.
-      await db.setRepoWebhook(target.workspace, target.repo_slug, true);
-      for (const pipeline of await bitbucket.latestPipelineForBranch(target.workspace, target.repo_slug, target.branch)) {
-        const row = mapPipeline(target.workspace, target.repo_slug, pipeline);
+      await db.setRepoWebhook(workspace, repo_slug, true);
+      for (const pipeline of await bitbucket.latestPipelineForBranch(workspace, repo_slug, branch)) {
+        const row = mapPipeline(workspace, repo_slug, pipeline);
         if (row) await record({ ...row, source: 'webhook' });
       }
       await db.setMeta('last_webhook_at', new Date().toISOString());
@@ -158,6 +166,8 @@ export function buildApp(config, db) {
     accessToken: config.accessToken,
     maxRetryWaitMs: config.reconcileBudgetMs > 0 ? 10000 : Infinity,
   });
+  // A webhook reply cannot wait out a rate limit, so it fails fast with 503 and Bitbucket or the next sync catches up.
+  const webhookClient = createClient({ accessToken: config.accessToken, maxRetryWaitMs: 0 });
   const notifyFailure = createFailureNotifier({ slackWebhookUrl: config.slackWebhookUrl });
   const record = createRecorder({ db, notifyFailure });
   const reconcile = createReconciler({
@@ -166,7 +176,7 @@ export function buildApp(config, db) {
   const app = createApp({
     db,
     record,
-    bitbucket: client,
+    bitbucket: webhookClient,
     workspace: config.workspace,
     reconcile,
     cronSecret: config.cronSecret,
