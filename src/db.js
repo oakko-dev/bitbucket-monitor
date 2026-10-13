@@ -79,16 +79,28 @@ export async function openDb(connectionString) {
 
   return {
     // Returns whether the row was applied, and the state it replaced (null for a new branch).
+    // The lock makes read-then-write atomic per branch, so two concurrent failures cannot both see the old state and both alert.
     async upsert(row) {
-      const before = await pool.query(
-        'SELECT latest_state FROM pipeline_state WHERE workspace = $1 AND repo_slug = $2 AND branch = $3',
-        [row.workspace, row.repo_slug, row.branch],
-      );
-      const result = await pool.query(UPSERT_STATE, [
-        row.workspace, row.repo_slug, row.branch, row.latest_state, row.environment,
-        row.pipeline_uuid, row.commit_hash, row.source, row.updated_at,
-      ]);
-      return { applied: result.rowCount > 0, previous: before.rows[0]?.latest_state ?? null };
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`${row.workspace}/${row.repo_slug}/${row.branch}`]);
+        const before = await client.query(
+          'SELECT latest_state FROM pipeline_state WHERE workspace = $1 AND repo_slug = $2 AND branch = $3',
+          [row.workspace, row.repo_slug, row.branch],
+        );
+        const result = await client.query(UPSERT_STATE, [
+          row.workspace, row.repo_slug, row.branch, row.latest_state, row.environment,
+          row.pipeline_uuid, row.commit_hash, row.source, row.updated_at,
+        ]);
+        await client.query('COMMIT');
+        return { applied: result.rowCount > 0, previous: before.rows[0]?.latest_state ?? null };
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
     },
     async appendHistory(row) {
       await pool.query(
