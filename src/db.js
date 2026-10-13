@@ -75,6 +75,8 @@ const iso = (value) => (value ? new Date(value).toISOString() : null);
 
 export async function openDb(connectionString) {
   const pool = new pg.Pool({ connectionString, max: 3 });
+  // An idle connection the server drops emits 'error' on the pool. Without a listener Node exits; the pool reconnects on its own.
+  pool.on('error', (err) => console.error(`db pool: ${err.message}`));
   await pool.query(SCHEMA);
 
   return {
@@ -82,6 +84,11 @@ export async function openDb(connectionString) {
     // The lock makes read-then-write atomic per branch, so two concurrent failures cannot both see the old state and both alert.
     async upsert(row) {
       const client = await pool.connect();
+      // A checked-out client loses the pool's listener, so a dropped connection would crash the process.
+      // The failed query already rejects with the cause, so the event itself needs no handling.
+      const ignore = () => {};
+      client.on('error', ignore);
+      let broken;
       try {
         await client.query('BEGIN');
         await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`${row.workspace}/${row.repo_slug}/${row.branch}`]);
@@ -96,10 +103,12 @@ export async function openDb(connectionString) {
         await client.query('COMMIT');
         return { applied: result.rowCount > 0, previous: before.rows[0]?.latest_state ?? null };
       } catch (err) {
-        await client.query('ROLLBACK');
+        // On a dead connection the ROLLBACK fails too. Report the first error and drop the connection.
+        await client.query('ROLLBACK').catch((rollbackErr) => { broken = rollbackErr; });
         throw err;
       } finally {
-        client.release();
+        client.off('error', ignore);
+        client.release(broken);
       }
     },
     async appendHistory(row) {

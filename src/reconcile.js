@@ -77,7 +77,7 @@ export function createReconciler({ client, db, record, workspace, webhookPathSec
       const running = known?.state === 'INPROGRESS';
       const recent = branch.date && Date.parse(branch.date) >= cutoff;
       if (!recent && !running) continue;
-      if (hooked && known && !running && known.commit_hash === branch.hash) continue;
+      if (hooked && known && !running && branch.hash && known.commit_hash === branch.hash) continue;
       for (const pipeline of await client.latestPipelineForBranch(workspace, slug, branch.name)) {
         const row = mapPipeline(workspace, slug, pipeline);
         if (row) await record(row);
