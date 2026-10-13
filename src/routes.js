@@ -166,6 +166,8 @@ export function buildApp(config, db) {
     accessToken: config.accessToken,
     maxRetryWaitMs: config.reconcileBudgetMs > 0 ? 10000 : Infinity,
   });
+  // A webhook reply cannot wait out a rate limit, so it fails fast with 503 and Bitbucket or the next sync catches up.
+  const webhookClient = createClient({ accessToken: config.accessToken, maxRetryWaitMs: 0 });
   const notifyFailure = createFailureNotifier({ slackWebhookUrl: config.slackWebhookUrl });
   const record = createRecorder({ db, notifyFailure });
   const reconcile = createReconciler({
@@ -174,7 +176,7 @@ export function buildApp(config, db) {
   const app = createApp({
     db,
     record,
-    bitbucket: client,
+    bitbucket: webhookClient,
     workspace: config.workspace,
     reconcile,
     cronSecret: config.cronSecret,
