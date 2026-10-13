@@ -216,6 +216,7 @@ test('a sync skips a branch whose head commit is already recorded, but only when
     { branch: 'main', state: 'SUCCESSFUL', commit_hash: 'h1' },
     { branch: 'dev', state: 'INPROGRESS', commit_hash: 'h2' },
     { branch: 'feat', state: 'FAILED', commit_hash: 'h3' },
+    { branch: 'nohash', state: 'SUCCESSFUL', commit_hash: null },
   ];
   const queriedWith = async (hooks) => {
     const queried = [];
@@ -224,7 +225,7 @@ test('a sync skips a branch whose head commit is already recorded, but only when
       listHooks: async () => hooks,
       listBranches: async () => [
         { name: 'main', date: recent, hash: 'h1' }, { name: 'dev', date: recent, hash: 'h2' },
-        { name: 'feat', date: recent, hash: 'h4' }, { name: 'new', date: recent, hash: 'h5' },
+        { name: 'feat', date: recent, hash: 'h4' }, { name: 'new', date: recent, hash: 'h5' }, { name: 'nohash', date: recent, hash: null },
       ],
       latestPipelineForBranch: async (_ws, _slug, branch) => { queried.push(branch); return []; },
     };
@@ -238,8 +239,8 @@ test('a sync skips a branch whose head commit is already recorded, but only when
     assert.equal(await reconcile(), 'ok');
     return queried;
   };
-  assert.deepEqual(await queriedWith(['https://host.test/webhooks/bitbucket/s']), ['dev', 'feat', 'new']);
-  assert.deepEqual(await queriedWith([]), ['main', 'dev', 'feat', 'new']);
+  assert.deepEqual(await queriedWith(['https://host.test/webhooks/bitbucket/s']), ['dev', 'feat', 'new', 'nohash']);
+  assert.deepEqual(await queriedWith([]), ['main', 'dev', 'feat', 'new', 'nohash']);
 });
 
 test('a sync keeps only the newest history entries of each repo', { skip: !process.env.TEST_DATABASE_URL }, async () => {
