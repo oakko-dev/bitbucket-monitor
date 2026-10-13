@@ -8,16 +8,19 @@ function required(name) {
 }
 
 // A blank value counts as unset, so an empty line copied from .env.example keeps the default.
-function number(name, fallback, { min = 0 } = {}) {
+function number(name, fallback, { min = 0, max = Infinity } = {}) {
   const raw = process.env[name];
   if (!raw?.trim()) return fallback;
   const value = Number(raw);
-  if (!Number.isFinite(value) || value < min) {
-    console.error(`Env var ${name} must be a number of at least ${min}, got "${raw}"`);
+  if (!Number.isFinite(value) || value < min || value > max) {
+    console.error(`Env var ${name} must be a number from ${min} to ${max}, got "${raw}"`);
     process.exit(1);
   }
   return value;
 }
+
+// setInterval runs any longer delay every 1 ms.
+const SET_INTERVAL_MAX_MS = 2 ** 31 - 1;
 
 export function loadConfig() {
   return {
@@ -30,7 +33,7 @@ export function loadConfig() {
     dashboardUsername: process.env.DASHBOARD_USERNAME || 'admin',
     dashboardPassword: required('DASHBOARD_PASSWORD'),
     cronSecret: process.env.CRON_SECRET || null,
-    reconcileIntervalMs: number('RECONCILE_INTERVAL_MS', 600000, { min: 1 }),
+    reconcileIntervalMs: number('RECONCILE_INTERVAL_MS', 600000, { min: 1000, max: SET_INTERVAL_MAX_MS }),
     // Vercel kills a function after 60 s (vercel.json), so a sync stops starting new repos after this long. 0 means no limit.
     reconcileBudgetMs: number('RECONCILE_BUDGET_MS', process.env.VERCEL ? 40000 : 0),
     recentBranchDays: number('RECENT_BRANCH_DAYS', 30),
