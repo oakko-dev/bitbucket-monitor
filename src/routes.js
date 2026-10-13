@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import express from 'express';
-import { COMMIT_STATUS_EVENTS, mapPipeline, parseStatusEvent, verifySignature } from './ingest.js';
+import { COMMIT_STATUS_EVENTS, mapPipeline, parseStatusEvent, pipelineUrl, verifySignature } from './ingest.js';
 import { createClient } from './bitbucket.js';
 import { createLoginThrottle, createSessions, readCookie } from './session.js';
 import { createReconciler } from './reconcile.js';
@@ -76,7 +76,7 @@ export function createApp({ db, record, bitbucket, workspace, reconcile, cronSec
 
   app.get('/api/status', requireLogin, async (_req, res) => {
     try {
-      res.json(await db.listStatus(workspace));
+      res.json((await db.listStatus(workspace)).map((r) => ({ ...r, run_url: r.state ? pipelineUrl(workspace, r.repo, r.build_number) : null })));
     } catch (err) {
       log.error(`status: ${err.message}`);
       res.sendStatus(503);
@@ -85,7 +85,7 @@ export function createApp({ db, record, bitbucket, workspace, reconcile, cronSec
 
   app.get('/api/history/:repo', requireLogin, async (req, res) => {
     try {
-      res.json(await db.listHistory(workspace, req.params.repo));
+      res.json((await db.listHistory(workspace, req.params.repo)).map((e) => ({ ...e, run_url: pipelineUrl(workspace, req.params.repo, e.build_number) })));
     } catch (err) {
       log.error(`history: ${err.message}`);
       res.sendStatus(503);

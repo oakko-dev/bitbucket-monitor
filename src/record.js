@@ -1,3 +1,5 @@
+import { pipelineUrl } from './ingest.js';
+
 // Every state change goes through here, from webhooks and from the sync alike.
 // A row that loses to a newer one is ignored, so history and alerts only see real changes.
 export function createRecorder({ db, notify, log = console }) {
@@ -37,8 +39,8 @@ const MESSAGES = {
 export function createSlackNotifier({ slackWebhookUrl, fetchImpl = fetch }) {
   return async function notify(kind, row) {
     if (!slackWebhookUrl) return;
-    const pipelines = `https://bitbucket.org/${encodeURIComponent(row.workspace)}/${encodeURIComponent(row.repo_slug)}/pipelines`;
-    const run = row.build_number == null ? `<${pipelines}|pipelines>` : `<${pipelines}/results/${row.build_number}|#${row.build_number}>`;
+    const url = pipelineUrl(row.workspace, row.repo_slug, row.build_number);
+    const run = `<${url}|${row.build_number == null ? 'pipelines' : `#${row.build_number}`}>`;
     const text = MESSAGES[kind](slackEscape(`${row.workspace}/${row.repo_slug}`), slackEscape(row.branch), run);
     const res = await fetchImpl(slackWebhookUrl, {
       method: 'POST',

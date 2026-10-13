@@ -22,6 +22,7 @@ const SCHEMA = `
     pipeline_uuid text,
     last_result   text,
     commit_hash   text,
+    build_number  integer,
     source        text        NOT NULL CHECK (source IN ('webhook', 'reconcile')),
     updated_at    timestamptz NOT NULL,
     PRIMARY KEY (workspace, repo_slug, branch)
@@ -29,6 +30,7 @@ const SCHEMA = `
 
   -- The last SUCCESSFUL or FAILED result, kept through running and stopped runs so alerts can compare outcomes.
   ALTER TABLE pipeline_state ADD COLUMN IF NOT EXISTS last_result text;
+  ALTER TABLE pipeline_state ADD COLUMN IF NOT EXISTS build_number integer;
   UPDATE pipeline_state SET last_result = latest_state WHERE last_result IS NULL AND latest_state IN ('SUCCESSFUL', 'FAILED');
 
   CREATE TABLE IF NOT EXISTS pipeline_history (
@@ -38,9 +40,11 @@ const SCHEMA = `
     branch       text        NOT NULL,
     latest_state text        NOT NULL,
     environment  text        NOT NULL,
+    build_number integer,
     source       text        NOT NULL,
     updated_at   timestamptz NOT NULL
   );
+  ALTER TABLE pipeline_history ADD COLUMN IF NOT EXISTS build_number integer;
   CREATE INDEX IF NOT EXISTS pipeline_history_repo
     ON pipeline_history (workspace, repo_slug, updated_at DESC);
 
@@ -53,14 +57,15 @@ const SCHEMA = `
 // Newer-wins lives in SQL, so webhook and reconcile writes can arrive in any order.
 const UPSERT_STATE = `
   INSERT INTO pipeline_state
-    (workspace, repo_slug, branch, latest_state, environment, pipeline_uuid, commit_hash, source, updated_at, last_result)
+    (workspace, repo_slug, branch, latest_state, environment, pipeline_uuid, commit_hash, source, updated_at, build_number, last_result)
   VALUES
-    ($1, $2, $3, $4, $5, $6, $7, $8, $9, CASE WHEN $4 IN ('SUCCESSFUL', 'FAILED') THEN $4 END)
+    ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CASE WHEN $4 IN ('SUCCESSFUL', 'FAILED') THEN $4 END)
   ON CONFLICT (workspace, repo_slug, branch) DO UPDATE SET
     latest_state = excluded.latest_state,
     last_result = COALESCE(excluded.last_result, pipeline_state.last_result),
     environment = excluded.environment,
     pipeline_uuid = excluded.pipeline_uuid,
+    build_number = excluded.build_number,
     commit_hash = excluded.commit_hash,
     source = excluded.source,
     updated_at = excluded.updated_at
@@ -69,7 +74,7 @@ const UPSERT_STATE = `
 
 // Every repo appears, even one with no pipeline run yet. Those rows have null state fields.
 const LIST_STATUS = `
-  SELECT r.repo_slug AS repo, r.has_webhook, p.branch, p.latest_state AS state, p.environment, p.commit_hash, p.updated_at, p.source
+  SELECT r.repo_slug AS repo, r.has_webhook, p.branch, p.latest_state AS state, p.environment, p.commit_hash, p.build_number, p.updated_at, p.source
   FROM repos r
   LEFT JOIN pipeline_state p
     ON p.workspace = r.workspace AND p.repo_slug = r.repo_slug
@@ -104,7 +109,7 @@ export async function openDb(connectionString) {
         );
         const result = await client.query(UPSERT_STATE, [
           row.workspace, row.repo_slug, row.branch, row.latest_state, row.environment,
-          row.pipeline_uuid, row.commit_hash, row.source, row.updated_at,
+          row.pipeline_uuid, row.commit_hash, row.source, row.updated_at, row.build_number ?? null,
         ]);
         await client.query('COMMIT');
         const [prior] = before.rows;
@@ -120,9 +125,9 @@ export async function openDb(connectionString) {
     },
     async appendHistory(row) {
       await pool.query(
-        `INSERT INTO pipeline_history (workspace, repo_slug, branch, latest_state, environment, source, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [row.workspace, row.repo_slug, row.branch, row.latest_state, row.environment, row.source, row.updated_at],
+        `INSERT INTO pipeline_history (workspace, repo_slug, branch, latest_state, environment, source, updated_at, build_number)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [row.workspace, row.repo_slug, row.branch, row.latest_state, row.environment, row.source, row.updated_at, row.build_number ?? null],
       );
     },
     async pruneHistory(workspace, keepPerRepo) {
@@ -138,7 +143,7 @@ export async function openDb(connectionString) {
     },
     async listHistory(workspace, repo, limit = 20) {
       const result = await pool.query(
-        `SELECT branch, latest_state AS state, environment, source, updated_at
+        `SELECT branch, latest_state AS state, environment, source, updated_at, build_number
          FROM pipeline_history
          WHERE workspace = $1 AND repo_slug = $2
          ORDER BY updated_at DESC

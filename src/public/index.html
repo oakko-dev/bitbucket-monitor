@@ -194,6 +194,12 @@
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
   const LABELS = { SUCCESSFUL: 'Passed', FAILED: 'Failed', INPROGRESS: 'Running', STOPPED: 'Stopped', NONE: 'No runs yet' };
   const stateOf = (r) => r.state ?? 'NONE';
+  function badge(state, runUrl) {
+    const inner = `${ICONS[state] ?? ''}${esc(LABELS[state] ?? state)}`;
+    return runUrl
+      ? `<a class="badge ${esc(state)}" href="${esc(runUrl)}" target="_blank" rel="noopener" title="Open this run in Bitbucket">${inner}</a>`
+      : `<span class="badge ${esc(state)}">${inner}</span>`;
+  }
   // Text plus shape, so state is never carried by color alone.
   const ICONS = {
     SUCCESSFUL: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M6.2 11.3 2.9 8l1.1-1.1 2.2 2.2 5.8-5.8 1.1 1.1z"/></svg>',
@@ -270,7 +276,7 @@
     return `<article class="row ${esc(state)}">` +
       `<button class="repo" type="button" data-repo="${esc(r.repo)}" title="Show recent runs">${esc(r.repo)}</button>` +
       `<div class="branch mono">${r.branch ? `<span>${esc(r.branch)}</span>` : '<span class="muted">—</span>'}</div>` +
-      `<div><span class="badge ${esc(state)}">${ICONS[state] ?? ''}${esc(LABELS[state] ?? state)}</span></div>` +
+      `<div>${badge(state, r.run_url)}</div>` +
       `<div class="commit mono" title="${esc(r.commit_hash ?? '')}">${esc((r.commit_hash ?? '').slice(0, 7) || '—')}</div>` +
       `<div class="time" title="${esc(stamp)}">${when}</div>` +
     `</article>`;
@@ -332,7 +338,7 @@
       }
       body.innerHTML = entries.map((e) =>
         `<div class="run"><div class="b mono">${esc(e.branch)}</div>` +
-        `<div><span class="badge ${esc(e.state)}">${ICONS[e.state] ?? ''}${esc(LABELS[e.state] ?? e.state)}</span></div>` +
+        `<div>${badge(e.state, e.run_url)}</div>` +
         `<div class="m">${esc(e.environment)}</div>` +
         `<div class="w"><time datetime="${esc(e.updated_at)}" title="${esc(new Date(e.updated_at).toLocaleString())}">${esc(ago(e.updated_at))}</time></div></div>`).join('');
     } catch (err) {

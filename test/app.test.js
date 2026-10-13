@@ -254,3 +254,27 @@ test('a rate-limited webhook answers 503 at once instead of waiting out Retry-Af
     await new Promise((r) => server.close(r));
   }
 });
+
+test('status and history rows carry a link to the run in Bitbucket', async () => {
+  const s = await serve({
+    db: {
+      listStatus: async () => [
+        { repo: 'web', branch: 'main', state: 'FAILED', build_number: 42 },
+        { repo: 'web', branch: 'old', state: 'SUCCESSFUL', build_number: null },
+        { repo: 'idle', branch: null, state: null, build_number: null },
+      ],
+      listHistory: async () => [{ branch: 'main', state: 'FAILED', build_number: 41 }],
+    },
+  });
+  try {
+    const { cookie } = await signIn(s.base);
+    const status = await (await fetch(`${s.base}/api/status`, { headers: { Cookie: cookie } })).json();
+    assert.deepEqual(status.map((r) => r.run_url), [
+      'https://bitbucket.org/acme/web/pipelines/results/42',
+      'https://bitbucket.org/acme/web/pipelines',
+      null,
+    ]);
+    const history = await (await fetch(`${s.base}/api/history/web`, { headers: { Cookie: cookie } })).json();
+    assert.equal(history[0].run_url, 'https://bitbucket.org/acme/web/pipelines/results/41');
+  } finally { await s.close(); }
+});

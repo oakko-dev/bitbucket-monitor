@@ -52,6 +52,12 @@ export function mapPipeline(workspace, repo_slug, pipeline) {
   };
 }
 
+// The run's page when its number is known, otherwise the repo's pipeline list.
+export function pipelineUrl(workspace, repo_slug, buildNumber) {
+  const pipelines = `https://bitbucket.org/${encodeURIComponent(workspace)}/${encodeURIComponent(repo_slug)}/pipelines`;
+  return buildNumber == null ? pipelines : `${pipelines}/results/${buildNumber}`;
+}
+
 // A hook belongs to this app when its URL ends with the path secret route. Other hooks on the repo are ignored.
 export function isOurWebhook(url, webhookPathSecret) {
   return typeof url === 'string' && url.endsWith(`/webhooks/bitbucket/${webhookPathSecret}`);

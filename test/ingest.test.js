@@ -151,3 +151,22 @@ test('a dropped database connection fails the call instead of crashing the proce
     await admin.end();
   }
 });
+
+// Runs against a real Postgres when TEST_DATABASE_URL is set.
+test('the run number is stored with the state and the history', { skip: !process.env.TEST_DATABASE_URL }, async () => {
+  const db = await openDb(process.env.TEST_DATABASE_URL);
+  const workspace = `ws-${crypto.randomUUID()}`;
+  const row = {
+    workspace, repo_slug: 'web', branch: 'main', latest_state: 'FAILED', environment: 'default',
+    pipeline_uuid: '{u}', build_number: 42, commit_hash: 'abc', source: 'webhook', updated_at: '2026-10-10T10:00:00.000Z',
+  };
+  try {
+    await db.addRepos(workspace, ['web']);
+    await db.upsert(row);
+    await db.appendHistory(row);
+    assert.equal((await db.listStatus(workspace))[0].build_number, 42);
+    assert.equal((await db.listHistory(workspace, 'web'))[0].build_number, 42);
+  } finally {
+    await db.close();
+  }
+});
