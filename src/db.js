@@ -109,6 +109,17 @@ export async function openDb(connectionString) {
         [row.workspace, row.repo_slug, row.branch, row.latest_state, row.environment, row.source, row.updated_at],
       );
     },
+    async pruneHistory(workspace, keepPerRepo) {
+      await pool.query(
+        `DELETE FROM pipeline_history WHERE id IN (
+           SELECT id FROM (
+             SELECT id, row_number() OVER (PARTITION BY repo_slug ORDER BY updated_at DESC, id DESC) AS n
+             FROM pipeline_history WHERE workspace = $1
+           ) ranked WHERE n > $2
+         )`,
+        [workspace, keepPerRepo],
+      );
+    },
     async listHistory(workspace, repo, limit = 20) {
       const result = await pool.query(
         `SELECT branch, latest_state AS state, environment, source, updated_at

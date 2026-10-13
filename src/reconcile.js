@@ -1,6 +1,8 @@
 import { isOurWebhook, mapPipeline } from './ingest.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+// The page shows a repo's last 20 changes. Each sync deletes entries past this count so the table stays bounded.
+const HISTORY_KEEP_PER_REPO = 200;
 
 // Returns 'ok' when every repo was visited, 'partial' when the time budget ended the run early (the next run resumes
 // after the last repo done), 'busy' when another run is in progress, or 'failed' when the repo list could not be read.
@@ -34,6 +36,7 @@ export function createReconciler({ client, db, record, workspace, webhookPathSec
           break;
         }
       }
+      await db.pruneHistory(workspace, HISTORY_KEEP_PER_REPO);
       await db.setMeta('sync_cursor', complete ? '' : lastDone);
       await db.setMeta('last_sync_at', new Date().toISOString());
       return complete ? 'ok' : 'partial';
