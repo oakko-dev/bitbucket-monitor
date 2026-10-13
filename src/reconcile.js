@@ -13,7 +13,8 @@ export function createReconciler({ client, db, record, workspace, webhookPathSec
     try {
       const slugs = (await client.listRepoSlugs(workspace)).sort();
       await db.addRepos(workspace, slugs);
-      await db.pruneRepos(workspace, slugs);
+      // An empty list more likely means a token problem than an empty workspace, so it never clears the page.
+      if (slugs.length > 0) await db.pruneRepos(workspace, slugs);
       const cursor = (await db.getMeta('sync_cursor')) ?? '';
       const next = slugs.findIndex((slug) => slug > cursor);
       const order = next === -1 ? slugs : [...slugs.slice(next), ...slugs.slice(0, next)];
