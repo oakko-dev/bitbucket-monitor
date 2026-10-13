@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import pg from 'pg';
 import { mapPipeline, parseStatusEvent, verifySignature } from '../src/ingest.js';
 import { openDb } from '../src/db.js';
 import { createClient } from '../src/bitbucket.js';
@@ -106,5 +107,46 @@ test('status lists repos with no runs and meta round-trips', { skip: !process.en
     assert.equal(await db.getMeta(key), '2026-10-10T10:10:00.000Z');
   } finally {
     await db.close();
+  }
+});
+
+// Runs against a real Postgres when TEST_DATABASE_URL is set. Uses its own database, because it kills connections.
+test('a dropped database connection fails the call instead of crashing the process', { skip: !process.env.TEST_DATABASE_URL }, async () => {
+  const admin = new pg.Client({ connectionString: process.env.TEST_DATABASE_URL });
+  await admin.connect();
+  const name = `drop_${crypto.randomUUID().replaceAll('-', '')}`;
+  await admin.query(`CREATE DATABASE ${name}`);
+  const url = new URL(process.env.TEST_DATABASE_URL);
+  url.pathname = `/${name}`;
+  const db = await openDb(url.toString());
+  const holder = new pg.Client({ connectionString: url.toString() });
+  await holder.connect();
+  const holderPid = (await holder.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+  const kill = (onlyWaiting) => admin.query(
+    `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> $2 ${onlyWaiting ? "AND wait_event_type = 'Lock'" : ''}`,
+    [name, holderPid],
+  );
+  const row = {
+    workspace: 'acme', repo_slug: 'web', branch: 'main', latest_state: 'FAILED', environment: 'default',
+    pipeline_uuid: null, commit_hash: 'abc', source: 'webhook', updated_at: '2026-10-10T10:00:00.000Z',
+  };
+  try {
+    await db.listStatus('acme');
+    await kill(false);
+    await new Promise((r) => setTimeout(r, 200));
+
+    await holder.query("SELECT pg_advisory_lock(hashtext('acme/web/main'))");
+    const pending = db.upsert(row);
+    for (let i = 0; i < 50 && (await kill(true)).rowCount === 0; i++) await new Promise((r) => setTimeout(r, 20));
+    await assert.rejects(pending, /terminating connection/);
+    await holder.query("SELECT pg_advisory_unlock(hashtext('acme/web/main'))");
+    await new Promise((r) => setTimeout(r, 200));
+
+    assert.equal((await db.upsert(row)).applied, true);
+  } finally {
+    await holder.end();
+    await db.close();
+    await admin.query(`DROP DATABASE ${name} WITH (FORCE)`);
+    await admin.end();
   }
 });

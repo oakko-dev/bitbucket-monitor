@@ -75,26 +75,58 @@ const iso = (value) => (value ? new Date(value).toISOString() : null);
 
 export async function openDb(connectionString) {
   const pool = new pg.Pool({ connectionString, max: 3 });
+  // An idle connection the server drops emits 'error' on the pool. Without a listener Node exits; the pool reconnects on its own.
+  pool.on('error', (err) => console.error(`db pool: ${err.message}`));
   await pool.query(SCHEMA);
 
   return {
     // Returns whether the row was applied, and the state it replaced (null for a new branch).
+    // The lock makes read-then-write atomic per branch, so two concurrent failures cannot both see the old state and both alert.
     async upsert(row) {
-      const before = await pool.query(
-        'SELECT latest_state FROM pipeline_state WHERE workspace = $1 AND repo_slug = $2 AND branch = $3',
-        [row.workspace, row.repo_slug, row.branch],
-      );
-      const result = await pool.query(UPSERT_STATE, [
-        row.workspace, row.repo_slug, row.branch, row.latest_state, row.environment,
-        row.pipeline_uuid, row.commit_hash, row.source, row.updated_at,
-      ]);
-      return { applied: result.rowCount > 0, previous: before.rows[0]?.latest_state ?? null };
+      const client = await pool.connect();
+      // A checked-out client loses the pool's listener, so a dropped connection would crash the process.
+      // The failed query already rejects with the cause, so the event itself needs no handling.
+      const ignore = () => {};
+      client.on('error', ignore);
+      let broken;
+      try {
+        await client.query('BEGIN');
+        await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`${row.workspace}/${row.repo_slug}/${row.branch}`]);
+        const before = await client.query(
+          'SELECT latest_state FROM pipeline_state WHERE workspace = $1 AND repo_slug = $2 AND branch = $3',
+          [row.workspace, row.repo_slug, row.branch],
+        );
+        const result = await client.query(UPSERT_STATE, [
+          row.workspace, row.repo_slug, row.branch, row.latest_state, row.environment,
+          row.pipeline_uuid, row.commit_hash, row.source, row.updated_at,
+        ]);
+        await client.query('COMMIT');
+        return { applied: result.rowCount > 0, previous: before.rows[0]?.latest_state ?? null };
+      } catch (err) {
+        // On a dead connection the ROLLBACK fails too. Report the first error and drop the connection.
+        await client.query('ROLLBACK').catch((rollbackErr) => { broken = rollbackErr; });
+        throw err;
+      } finally {
+        client.off('error', ignore);
+        client.release(broken);
+      }
     },
     async appendHistory(row) {
       await pool.query(
         `INSERT INTO pipeline_history (workspace, repo_slug, branch, latest_state, environment, source, updated_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
         [row.workspace, row.repo_slug, row.branch, row.latest_state, row.environment, row.source, row.updated_at],
+      );
+    },
+    async pruneHistory(workspace, keepPerRepo) {
+      await pool.query(
+        `DELETE FROM pipeline_history WHERE id IN (
+           SELECT id FROM (
+             SELECT id, row_number() OVER (PARTITION BY repo_slug ORDER BY updated_at DESC, id DESC) AS n
+             FROM pipeline_history WHERE workspace = $1
+           ) ranked WHERE n > $2
+         )`,
+        [workspace, keepPerRepo],
       );
     },
     async listHistory(workspace, repo, limit = 20) {
@@ -121,12 +153,12 @@ export async function openDb(connectionString) {
         [workspace, slug, installed],
       );
     },
-    async listRunningBranches(workspace, slug) {
+    async listBranchStates(workspace, slug) {
       const result = await pool.query(
-        "SELECT branch FROM pipeline_state WHERE workspace = $1 AND repo_slug = $2 AND latest_state = 'INPROGRESS'",
+        'SELECT branch, latest_state AS state, commit_hash FROM pipeline_state WHERE workspace = $1 AND repo_slug = $2',
         [workspace, slug],
       );
-      return result.rows.map((r) => r.branch);
+      return result.rows;
     },
     // A row newer than listedAt may belong to a branch created after the list was read, so it stays.
     async pruneBranches(workspace, slug, liveBranches, listedAt) {
