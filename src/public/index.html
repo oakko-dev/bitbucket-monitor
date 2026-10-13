@@ -64,6 +64,23 @@
   .switch input:focus-visible + .track { outline: 2px solid var(--primary); outline-offset: 2px; }
   #scopeCount { color: var(--muted); font-size: 13px; }
 
+  .running { margin-bottom: 20px; }
+  .running[hidden] { display: none; }
+  .section-title { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; font-size: 14px; font-weight: 700; letter-spacing: .01em; }
+  .section-title .count { padding: 1px 9px; border-radius: 999px; background: var(--run-bg); color: var(--run); font-size: 12px; }
+  .run-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+  .run-card {
+    position: relative; overflow: hidden; display: grid; gap: 8px; padding: 14px 16px 18px;
+    background: var(--surface); border: 1px solid color-mix(in srgb, var(--run) 38%, var(--line)); border-radius: 14px; box-shadow: var(--shadow);
+  }
+  .run-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+  .run-card .elapsed { color: var(--run); font-size: 13px; font-weight: 650; white-space: nowrap; }
+  .run-card .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; color: var(--muted); font-size: 13px; }
+  .bar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: var(--run-bg); overflow: hidden; }
+  .bar::after { content: ""; position: absolute; top: 0; bottom: 0; width: 40%; background: var(--run); border-radius: 4px; animation: slide 1.6s ease-in-out infinite; }
+  @keyframes slide { from { left: -40%; } to { left: 100%; } }
+  @media (prefers-reduced-motion: reduce) { .bar::after { animation: none; left: 0; width: 100%; opacity: .55; } }
+
   .table { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); overflow: hidden; }
   .head, .row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1.5fr) 132px 96px 104px; gap: 16px; align-items: center; padding: 0 18px 0 22px; }
   .head { min-height: 40px; background: var(--surface-2); border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; font-weight: 650; text-transform: uppercase; letter-spacing: .05em; }
@@ -174,6 +191,11 @@
     <span id="scopeCount"></span>
   </div>
 
+  <section id="running" class="running" aria-labelledby="runningTitle" hidden>
+    <h2 id="runningTitle" class="section-title">Running now <span id="runningCount" class="count"></span></h2>
+    <div id="runGrid" class="run-grid"></div>
+  </section>
+
   <section class="table" aria-label="Latest pipeline state per repo and branch">
     <div class="head" aria-hidden="true"><div>Repo</div><div>Branch</div><div>State</div><div>Commit</div><div>Updated</div></div>
     <div id="list"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>
@@ -268,6 +290,23 @@
     $('heroSub').textContent = sub;
   }
 
+  // How long a pipeline has been going. The server stores a running pipeline's start time as updated_at.
+  function elapsed(iso) {
+    const s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+    if (s < 60) return `${s}s`;
+    if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
+    return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+  }
+
+  function renderRunCard(r) {
+    return `<article class="run-card">` +
+      `<div class="run-card-top"><button class="repo" type="button" data-repo="${esc(r.repo)}" title="Show recent runs">${esc(r.repo)}</button>` +
+      `<span class="elapsed" data-since="${esc(r.updated_at)}" title="Started ${esc(new Date(r.updated_at).toLocaleString())}">${esc(elapsed(r.updated_at))}</span></div>` +
+      `<div class="meta"><span class="branch mono"><span>${esc(r.branch)}</span></span>` +
+      `<span class="mono">${esc((r.commit_hash ?? '').slice(0, 7))}</span>${badge('INPROGRESS', r.run_url)}</div>` +
+      `<div class="bar" role="presentation"></div></article>`;
+  }
+
   function renderRow(r) {
     const state = stateOf(r);
     const hasRun = r.updated_at != null;
@@ -294,8 +333,16 @@
     if (!loaded) return;
     renderHero(counts);
 
-    const list = visible();
+    const matches = visible();
+    // With every state shown, running pipelines get their own section above the table instead of a spot in it.
+    const pinned = stateFilter === 'ALL' ? matches.filter((r) => stateOf(r) === 'INPROGRESS') : [];
+    const list = pinned.length > 0 ? matches.filter((r) => stateOf(r) !== 'INPROGRESS') : matches;
+    $('running').hidden = pinned.length === 0;
+    $('runningCount').textContent = pinned.length;
+    $('runGrid').innerHTML = pinned.map(renderRunCard).join('');
+    document.title = counts.INPROGRESS > 0 ? `(${counts.INPROGRESS} running) Deploy Monitor` : 'Deploy Monitor';
     const el = $('list');
+    $('list').closest('.table').hidden = list.length === 0 && pinned.length > 0;
     if (list.length === 0) {
       const none = rows.length === 0;
       el.innerHTML = `<div class="empty">${EMPTY_ICON}<strong>${none ? 'No deploys yet' : 'Nothing matches'}</strong>` +
@@ -346,6 +393,10 @@
     }
   }
 
+  $('running').addEventListener('click', (e) => {
+    const repo = e.target.closest('.repo');
+    if (repo) showHistory(repo.dataset.repo);
+  });
   $('list').addEventListener('click', (e) => {
     const repo = e.target.closest('.repo');
     if (repo) showHistory(repo.dataset.repo);
@@ -430,6 +481,9 @@
   setInterval(load, 15000);
   setInterval(loadMeta, 15000);
   setInterval(render, 30000);
+  setInterval(() => {
+    document.querySelectorAll('.elapsed[data-since]').forEach((el) => { el.textContent = elapsed(el.dataset.since); });
+  }, 1000);
 </script>
 </body>
 </html>
