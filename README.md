@@ -59,6 +59,8 @@ Vercel functions cannot keep local files, so the data lives in Postgres.
 
 Hobby allows one cron run per day, which is why the schedule is daily. On Pro, change the schedule to `*/10 * * * *` to sync every 10 minutes. Webhooks update the page in real time either way.
 
+On Hobby, the `sync` GitHub Actions workflow calls `/api/reconcile` every 15 minutes instead. Add the production `CRON_SECRET` as a repository secret named `CRON_SECRET` to turn it on. Until then the workflow does nothing. GitHub can delay scheduled runs, and it pauses them in a public repo after 60 days without commits.
+
 A sync that runs out of its time budget finishes the remaining repos on the next run, whether that is the next cron tick or the next click on Sync now. On Hobby, a workspace with many repos can take several days to sweep once.
 
 ## Add the webhook to every repo

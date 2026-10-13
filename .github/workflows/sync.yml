@@ -1,0 +1,21 @@
+name: sync
+
+# Vercel Hobby runs the sync cron once a day. This calls the same route more often, so the page catches what webhooks miss.
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /api/reconcile
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::notice::Add the CRON_SECRET repository secret to turn on the scheduled sync."
+            exit 0
+          fi
+          curl -fsS --max-time 70 -H "Authorization: Bearer $CRON_SECRET" https://bitbucket-monitor.vercel.app/api/reconcile
