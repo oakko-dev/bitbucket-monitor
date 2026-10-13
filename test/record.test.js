@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import { createRecorder, createFailureNotifier } from '../src/record.js';
+import { openDb } from '../src/db.js';
 
 const row = (state, extra = {}) => ({
   workspace: 'acme', repo_slug: 'web', branch: 'main', latest_state: state, environment: 'prod',
@@ -83,4 +85,23 @@ test('a new branch whose first event is a webhook FAILED still notifies', async 
   const record = createRecorder({ db, notifyFailure: async (r) => notified.push(r) });
   await record(row('FAILED'));
   assert.equal(notified.length, 1);
+});
+
+// Runs against a real Postgres when TEST_DATABASE_URL is set. Each run uses a fresh workspace.
+test('two failures for one branch recorded at the same moment notify once', { skip: !process.env.TEST_DATABASE_URL }, async () => {
+  const db = await openDb(process.env.TEST_DATABASE_URL);
+  const workspace = `ws-${crypto.randomUUID()}`;
+  const notified = [];
+  const record = createRecorder({ db, notifyFailure: async (r) => notified.push(r.branch) });
+  const branches = Array.from({ length: 20 }, (_, i) => `b${i}`);
+  try {
+    for (const branch of branches) await record(row('INPROGRESS', { workspace, branch, updated_at: '2026-10-10T10:00:00.000Z' }));
+    await Promise.all(branches.flatMap((branch) => [
+      record(row('FAILED', { workspace, branch, updated_at: '2026-10-10T10:05:00.000Z' })),
+      record(row('FAILED', { workspace, branch, updated_at: '2026-10-10T10:06:00.000Z' })),
+    ]));
+    assert.deepEqual(notified.sort(), branches.sort());
+  } finally {
+    await db.close();
+  }
 });

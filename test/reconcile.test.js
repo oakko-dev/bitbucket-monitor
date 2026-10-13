@@ -145,7 +145,7 @@ async function withSyncedDb(seed, client, fn) {
       client: client(db, workspace), db, record, workspace, webhookPathSecret: 's', recentBranchDays: 30, log: { error: () => {} },
     });
     assert.equal(await reconcile(), 'ok');
-    await fn((await db.listStatus(workspace)).map((r) => `${r.repo}/${r.branch}:${r.state}`).sort());
+    await fn((await db.listStatus(workspace)).map((r) => `${r.repo}/${r.branch}:${r.state}`).sort(), db, workspace);
   } finally {
     await db.close();
   }
@@ -208,4 +208,55 @@ test('an empty repo list from Bitbucket does not clear the page', { skip: !proce
   };
   const client = () => ({ listRepoSlugs: async () => [], listHooks: async () => [], listBranches: async () => [] });
   await withSyncedDb(seed, client, (rows) => assert.deepEqual(rows, ['web/main:FAILED']));
+});
+
+test('a sync skips a branch whose head commit is already recorded, but only when the webhook is installed', async () => {
+  const recent = new Date(NOW - DAY).toISOString();
+  const stored = [
+    { branch: 'main', state: 'SUCCESSFUL', commit_hash: 'h1' },
+    { branch: 'dev', state: 'INPROGRESS', commit_hash: 'h2' },
+    { branch: 'feat', state: 'FAILED', commit_hash: 'h3' },
+  ];
+  const queriedWith = async (hooks) => {
+    const queried = [];
+    const client = {
+      listRepoSlugs: async () => ['web'],
+      listHooks: async () => hooks,
+      listBranches: async () => [
+        { name: 'main', date: recent, hash: 'h1' }, { name: 'dev', date: recent, hash: 'h2' },
+        { name: 'feat', date: recent, hash: 'h4' }, { name: 'new', date: recent, hash: 'h5' },
+      ],
+      latestPipelineForBranch: async (_ws, _slug, branch) => { queried.push(branch); return []; },
+    };
+    const db = {
+      addRepos: async () => {}, pruneRepos: async () => {}, pruneBranches: async () => {}, pruneHistory: async () => {},
+      getMeta: async () => null, setMeta: async () => {}, setRepoWebhook: async () => {}, listBranchStates: async () => stored, listRunningBranches: async () => ['dev'],
+    };
+    const reconcile = createReconciler({
+      client, db, record: async () => {}, workspace: 'acme', webhookPathSecret: 's', recentBranchDays: 30, log: { error: () => {} }, now: () => NOW,
+    });
+    assert.equal(await reconcile(), 'ok');
+    return queried;
+  };
+  assert.deepEqual(await queriedWith(['https://host.test/webhooks/bitbucket/s']), ['dev', 'feat', 'new']);
+  assert.deepEqual(await queriedWith([]), ['main', 'dev', 'feat', 'new']);
+});
+
+test('a sync keeps only the newest history entries of each repo', { skip: !process.env.TEST_DATABASE_URL }, async () => {
+  const entry = (ws, repo_slug, minute) => ({
+    workspace: ws, repo_slug, branch: 'main', latest_state: 'SUCCESSFUL', environment: 'default', source: 'reconcile',
+    updated_at: new Date(Date.UTC(2026, 9, 1, 0, minute)).toISOString(),
+  });
+  const seed = async (db, ws) => {
+    await db.addRepos(ws, ['busy', 'quiet']);
+    for (let minute = 0; minute < 205; minute++) await db.appendHistory(entry(ws, 'busy', minute));
+    await db.appendHistory(entry(ws, 'quiet', 0));
+  };
+  const client = () => ({ listRepoSlugs: async () => ['busy', 'quiet'], listHooks: async () => [], listBranches: async () => [] });
+  await withSyncedDb(seed, client, async (_rows, db, ws) => {
+    const busy = await db.listHistory(ws, 'busy', 1000);
+    assert.equal(busy.length, 200);
+    assert.equal(busy.at(-1).updated_at, entry(ws, 'busy', 5).updated_at);
+    assert.equal((await db.listHistory(ws, 'quiet', 1000)).length, 1);
+  });
 });
