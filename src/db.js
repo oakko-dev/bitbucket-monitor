@@ -20,11 +20,16 @@ const SCHEMA = `
     latest_state  text        NOT NULL CHECK (latest_state IN ('SUCCESSFUL', 'FAILED', 'INPROGRESS', 'STOPPED')),
     environment   text        NOT NULL,
     pipeline_uuid text,
+    last_result   text,
     commit_hash   text,
     source        text        NOT NULL CHECK (source IN ('webhook', 'reconcile')),
     updated_at    timestamptz NOT NULL,
     PRIMARY KEY (workspace, repo_slug, branch)
   );
+
+  -- The last SUCCESSFUL or FAILED result, kept through running and stopped runs so alerts can compare outcomes.
+  ALTER TABLE pipeline_state ADD COLUMN IF NOT EXISTS last_result text;
+  UPDATE pipeline_state SET last_result = latest_state WHERE last_result IS NULL AND latest_state IN ('SUCCESSFUL', 'FAILED');
 
   CREATE TABLE IF NOT EXISTS pipeline_history (
     id           bigserial   PRIMARY KEY,
@@ -48,11 +53,12 @@ const SCHEMA = `
 // Newer-wins lives in SQL, so webhook and reconcile writes can arrive in any order.
 const UPSERT_STATE = `
   INSERT INTO pipeline_state
-    (workspace, repo_slug, branch, latest_state, environment, pipeline_uuid, commit_hash, source, updated_at)
+    (workspace, repo_slug, branch, latest_state, environment, pipeline_uuid, commit_hash, source, updated_at, last_result)
   VALUES
-    ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    ($1, $2, $3, $4, $5, $6, $7, $8, $9, CASE WHEN $4 IN ('SUCCESSFUL', 'FAILED') THEN $4 END)
   ON CONFLICT (workspace, repo_slug, branch) DO UPDATE SET
     latest_state = excluded.latest_state,
+    last_result = COALESCE(excluded.last_result, pipeline_state.last_result),
     environment = excluded.environment,
     pipeline_uuid = excluded.pipeline_uuid,
     commit_hash = excluded.commit_hash,
@@ -93,7 +99,7 @@ export async function openDb(connectionString) {
         await client.query('BEGIN');
         await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`${row.workspace}/${row.repo_slug}/${row.branch}`]);
         const before = await client.query(
-          'SELECT latest_state FROM pipeline_state WHERE workspace = $1 AND repo_slug = $2 AND branch = $3',
+          'SELECT latest_state, last_result FROM pipeline_state WHERE workspace = $1 AND repo_slug = $2 AND branch = $3',
           [row.workspace, row.repo_slug, row.branch],
         );
         const result = await client.query(UPSERT_STATE, [
@@ -101,7 +107,8 @@ export async function openDb(connectionString) {
           row.pipeline_uuid, row.commit_hash, row.source, row.updated_at,
         ]);
         await client.query('COMMIT');
-        return { applied: result.rowCount > 0, previous: before.rows[0]?.latest_state ?? null };
+        const [prior] = before.rows;
+        return { applied: result.rowCount > 0, previous: prior?.latest_state ?? null, previousResult: prior?.last_result ?? null };
       } catch (err) {
         // On a dead connection the ROLLBACK fails too. Report the first error and drop the connection.
         await client.query('ROLLBACK').catch((rollbackErr) => { broken = rollbackErr; });
