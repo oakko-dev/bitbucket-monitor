@@ -140,7 +140,7 @@ async function withSyncedDb(seed, client, fn) {
   const workspace = `ws-${crypto.randomUUID()}`;
   try {
     await seed(db, workspace);
-    const record = createRecorder({ db, notifyFailure: async () => {} });
+    const record = createRecorder({ db, notify: async () => {} });
     const reconcile = createReconciler({
       client: client(db, workspace), db, record, workspace, webhookPathSecret: 's', recentBranchDays: 30, log: { error: () => {} },
     });

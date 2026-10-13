@@ -5,7 +5,7 @@ import { COMMIT_STATUS_EVENTS, mapPipeline, parseStatusEvent, verifySignature } 
 import { createClient } from './bitbucket.js';
 import { createLoginThrottle, createSessions, readCookie } from './session.js';
 import { createReconciler } from './reconcile.js';
-import { createFailureNotifier, createRecorder } from './record.js';
+import { createRecorder, createSlackNotifier } from './record.js';
 
 function safeEqual(a, b) {
   const ha = crypto.createHash('sha256').update(String(a)).digest();
@@ -168,8 +168,8 @@ export function buildApp(config, db) {
   });
   // A webhook reply cannot wait out a rate limit, so it fails fast with 503 and Bitbucket or the next sync catches up.
   const webhookClient = createClient({ accessToken: config.accessToken, maxRetryWaitMs: 0 });
-  const notifyFailure = createFailureNotifier({ slackWebhookUrl: config.slackWebhookUrl });
-  const record = createRecorder({ db, notifyFailure });
+  const notify = createSlackNotifier({ slackWebhookUrl: config.slackWebhookUrl });
+  const record = createRecorder({ db, notify });
   const reconcile = createReconciler({
     client, db, record, workspace: config.workspace, webhookPathSecret: config.webhookPathSecret, recentBranchDays: config.recentBranchDays, budgetMs: config.reconcileBudgetMs,
   });

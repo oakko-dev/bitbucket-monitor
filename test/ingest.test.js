@@ -21,6 +21,7 @@ test('mapPipeline maps completed and running pipelines', () => {
   const p = { uuid: '{u}', target: { ref_name: 'dev', commit: { hash: 'h' } }, created_on: '2026-10-10T09:00:00Z' };
   assert.equal(mapPipeline('acme', 'web', { ...p, state: { name: 'IN_PROGRESS' } }).latest_state, 'INPROGRESS');
   assert.equal(mapPipeline('acme', 'web', { ...p, state: { name: 'COMPLETED', result: { name: 'SUCCESSFUL' } } }).latest_state, 'SUCCESSFUL');
+  assert.equal(mapPipeline('acme', 'web', { ...p, build_number: 7, state: { name: 'IN_PROGRESS' } }).build_number, 7);
 });
 
 // Runs against a real Postgres when TEST_DATABASE_URL is set. Each run uses a fresh repo name.

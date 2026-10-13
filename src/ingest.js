@@ -45,6 +45,7 @@ export function mapPipeline(workspace, repo_slug, pipeline) {
     latest_state: pipelineState(pipeline.state),
     environment: 'default',
     pipeline_uuid: pipeline.uuid ?? null,
+    build_number: pipeline.build_number ?? null,
     commit_hash: pipeline.target?.commit?.hash ?? null,
     source: 'reconcile',
     updated_at,
