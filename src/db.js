@@ -1,6 +1,10 @@
 import pg from 'pg';
 
+// CREATE TABLE IF NOT EXISTS is not safe to run concurrently on an empty database, and every cold start runs this.
+// The statements share one implicit transaction, so the lock holds until the last one is done.
 const SCHEMA = `
+  SELECT pg_advisory_xact_lock(hashtext('bitbucket-monitor schema'));
+
   CREATE TABLE IF NOT EXISTS repos (
     workspace   text    NOT NULL,
     repo_slug   text    NOT NULL,
@@ -116,6 +120,25 @@ export async function openDb(connectionString) {
         'UPDATE repos SET has_webhook = $3 WHERE workspace = $1 AND repo_slug = $2',
         [workspace, slug, installed],
       );
+    },
+    async listRunningBranches(workspace, slug) {
+      const result = await pool.query(
+        "SELECT branch FROM pipeline_state WHERE workspace = $1 AND repo_slug = $2 AND latest_state = 'INPROGRESS'",
+        [workspace, slug],
+      );
+      return result.rows.map((r) => r.branch);
+    },
+    // A row newer than listedAt may belong to a branch created after the list was read, so it stays.
+    async pruneBranches(workspace, slug, liveBranches, listedAt) {
+      await pool.query(
+        `DELETE FROM pipeline_state
+         WHERE workspace = $1 AND repo_slug = $2 AND NOT (branch = ANY($3::text[])) AND updated_at < $4`,
+        [workspace, slug, liveBranches, listedAt],
+      );
+    },
+    async pruneRepos(workspace, liveSlugs) {
+      await pool.query('DELETE FROM pipeline_state WHERE workspace = $1 AND NOT (repo_slug = ANY($2::text[]))', [workspace, liveSlugs]);
+      await pool.query('DELETE FROM repos WHERE workspace = $1 AND NOT (repo_slug = ANY($2::text[]))', [workspace, liveSlugs]);
     },
     async listStatus(workspace) {
       const result = await pool.query(LIST_STATUS, [workspace]);

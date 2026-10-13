@@ -13,6 +13,8 @@ export function createReconciler({ client, db, record, workspace, webhookPathSec
     try {
       const slugs = (await client.listRepoSlugs(workspace)).sort();
       await db.addRepos(workspace, slugs);
+      // An empty list more likely means a token problem than an empty workspace, so it never clears the page.
+      if (slugs.length > 0) await db.pruneRepos(workspace, slugs);
       const cursor = (await db.getMeta('sync_cursor')) ?? '';
       const next = slugs.findIndex((slug) => slug > cursor);
       const order = next === -1 ? slugs : [...slugs.slice(next), ...slugs.slice(0, next)];
@@ -54,11 +56,16 @@ export function createReconciler({ client, db, record, workspace, webhookPathSec
   }
 
   // Branches with no commit inside the window are skipped, so a repo with many old branches costs little.
+  // A branch stored as running is always checked, because a re-run on an old branch would otherwise never finish.
   async function syncRepo(slug) {
     const cutoff = now() - recentBranchDays * DAY_MS;
+    const listedAt = new Date().toISOString();
     const branches = await client.listBranches(workspace, slug);
+    await db.pruneBranches(workspace, slug, branches.map((b) => b.name), listedAt);
+    const running = new Set(await db.listRunningBranches(workspace, slug));
     for (const branch of branches) {
-      if (!branch.date || Date.parse(branch.date) < cutoff) continue;
+      const recent = branch.date && Date.parse(branch.date) >= cutoff;
+      if (!recent && !running.has(branch.name)) continue;
       for (const pipeline of await client.latestPipelineForBranch(workspace, slug, branch.name)) {
         const row = mapPipeline(workspace, slug, pipeline);
         if (row) await record(row);

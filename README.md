@@ -30,7 +30,14 @@ npm start
 
 Open `http://localhost:3000/` and sign in with `DASHBOARD_USERNAME` and `DASHBOARD_PASSWORD`. The page reloads `/api/status` every 15 seconds.
 
-Run the tests with `npm test`.
+Run the tests with `npm test`. The database tests run only when `TEST_DATABASE_URL` points at a Postgres you can write to, for example:
+
+```sh
+docker run -d --rm --name bbm-pg -e POSTGRES_PASSWORD=test -p 55432:5432 postgres:17-alpine
+TEST_DATABASE_URL=postgres://postgres:test@localhost:55432/postgres npm test
+```
+
+GitHub Actions runs the full suite against Postgres on every push and pull request.
 
 ## Docker
 
@@ -47,9 +54,9 @@ Vercel functions cannot keep local files, so the data lives in Postgres.
 
 1. In Vercel, add the **Neon** (Postgres) integration from the Marketplace. It sets `DATABASE_URL`.
 2. Add `BITBUCKET_WORKSPACE`, `BITBUCKET_ACCESS_TOKEN`, `WEBHOOK_PATH_SECRET`, `DASHBOARD_PASSWORD`, and `CRON_SECRET` in the project's environment variables.
-3. Deploy. `vercel.json` schedules `/api/reconcile` every 10 minutes.
+3. Deploy. `vercel.json` schedules `/api/reconcile` once a day at 00:00 UTC.
 
-Vercel Cron runs every 10 minutes only on the Pro plan. Hobby allows one run per day, so the poll runs less often there. Webhooks still update the page in real time.
+Hobby allows one cron run per day, which is why the schedule is daily. On Pro, change the schedule to `*/10 * * * *` to sync every 10 minutes. Webhooks update the page in real time either way.
 
 A sync that runs out of its time budget finishes the remaining repos on the next run, whether that is the next cron tick or the next click on Sync now. On Hobby, a workspace with many repos can take several days to sweep once.
 
@@ -72,11 +79,12 @@ To limit the run to some repos, set `REPO_FILTER` to a case-insensitive regex ma
 
 The page lists every repo in the workspace. A repo with no pipeline run shows "No runs yet". The header shows when the last webhook arrived and when the last sync finished.
 
-**Sync now** runs the same sync as the cron. The page asks for the `CRON_SECRET` once per browser tab and keeps it only for that tab. A wrong key returns 401. If Bitbucket cannot return the repo list, the sync returns 502 and the page says it failed.
+**Sync now** runs the same sync as the cron. It uses your dashboard sign-in, not `CRON_SECRET`. If Bitbucket cannot return the repo list, the sync returns 502 and the page says it failed.
 
 ## Alerts, history, and branches
 
-- **Branches.** Each sync checks every branch that had a commit in the last `RECENT_BRANCH_DAYS` (default 30). Older branches are skipped to keep the sync within the time limit.
+- **Branches.** Each sync checks every branch that had a commit in the last `RECENT_BRANCH_DAYS` (default 30). Older branches are skipped to keep the sync within the time limit, except a branch the page shows as running, which is checked until it finishes.
+- **Deleted branches and repos.** A sync removes a branch from the page once Bitbucket no longer lists it, and removes a repo once it leaves the workspace. An empty repo list is treated as an error and removes nothing. Their history stays in the database.
 - **Alerts.** Set `SLACK_WEBHOOK_URL` to a Slack incoming webhook. A message posts when a branch changes to FAILED from another state. A repeat FAILED does not post again.
 - **History.** Click a repo name on the page to see its last 20 recorded state changes. Only changes that were applied are recorded.
 - **Rejected webhooks.** A delivery with a wrong path or signature returns 403 or 401. The page shows the most recent rejection and its reason, so a misconfigured webhook is visible.
