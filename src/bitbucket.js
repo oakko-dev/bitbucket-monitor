@@ -38,14 +38,14 @@ export function createClient({ accessToken, maxRetryWaitMs = Infinity, fetchImpl
       }
       return urls;
     },
-    // Returns { name, date } for each branch. date is the commit date, used to skip long-dead branches.
+    // Returns { name, date, hash } for each branch. date is the head commit's date, used to skip long-dead branches.
     async listBranches(workspace, slug) {
       const branches = [];
       let url = `${API}/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(slug)}/refs/branches?pagelen=100`;
       while (url) {
         const page = await getJson(url);
         for (const branch of page.values ?? []) {
-          branches.push({ name: branch.name, date: branch.target?.date ?? null });
+          branches.push({ name: branch.name, date: branch.target?.date ?? null, hash: branch.target?.hash ?? null });
         }
         url = page.next;
       }

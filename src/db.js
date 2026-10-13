@@ -133,12 +133,12 @@ export async function openDb(connectionString) {
         [workspace, slug, installed],
       );
     },
-    async listRunningBranches(workspace, slug) {
+    async listBranchStates(workspace, slug) {
       const result = await pool.query(
-        "SELECT branch FROM pipeline_state WHERE workspace = $1 AND repo_slug = $2 AND latest_state = 'INPROGRESS'",
+        'SELECT branch, latest_state AS state, commit_hash FROM pipeline_state WHERE workspace = $1 AND repo_slug = $2',
         [workspace, slug],
       );
-      return result.rows.map((r) => r.branch);
+      return result.rows;
     },
     // A row newer than listedAt may belong to a branch created after the list was read, so it stays.
     async pruneBranches(workspace, slug, liveBranches, listedAt) {
