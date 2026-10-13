@@ -303,7 +303,7 @@
       `<div class="run-card-top"><button class="repo" type="button" data-repo="${esc(r.repo)}" title="Show recent runs">${esc(r.repo)}</button>` +
       `<span class="elapsed" data-since="${esc(r.updated_at)}" title="Started ${esc(new Date(r.updated_at).toLocaleString())}">${esc(elapsed(r.updated_at))}</span></div>` +
       `<div class="meta"><span class="branch mono"><span>${esc(r.branch)}</span></span>` +
-      `<span class="mono">${esc((r.commit_hash ?? '').slice(0, 7))}</span></div>` +
+      `<span class="mono">${esc((r.commit_hash ?? '').slice(0, 7))}</span>${badge('INPROGRESS', r.run_url)}</div>` +
       `<div class="bar" role="presentation"></div></article>`;
   }
 
