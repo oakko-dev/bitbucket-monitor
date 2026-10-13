@@ -15,7 +15,7 @@ function load(env) {
 }
 
 test('a number setting that is not a number stops startup and names the variable', () => {
-  for (const [name, value] of [['RECONCILE_INTERVAL_MS', 'abc'], ['RECONCILE_INTERVAL_MS', '0'], ['RECENT_BRANCH_DAYS', '-1'], ['PORT', '30OO']]) {
+  for (const [name, value] of [['RECONCILE_INTERVAL_MS', 'abc'], ['RECONCILE_INTERVAL_MS', '0'], ['RECONCILE_INTERVAL_MS', '999'], ['RECONCILE_INTERVAL_MS', '3000000000'], ['RECENT_BRANCH_DAYS', '-1'], ['PORT', '30OO']]) {
     const { status, stderr } = load({ [name]: value });
     assert.equal(status, 1, `${name}=${value}`);
     assert.match(stderr, new RegExp(name));
