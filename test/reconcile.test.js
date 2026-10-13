@@ -200,3 +200,12 @@ test('a sync re-checks a branch stuck running even when its last commit is outsi
   });
   await withSyncedDb(seed, client, (rows) => assert.deepEqual(rows, ['web/old-release:SUCCESSFUL']));
 });
+
+test('an empty repo list from Bitbucket does not clear the page', { skip: !process.env.TEST_DATABASE_URL }, async () => {
+  const seed = async (db, ws) => {
+    await db.addRepos(ws, ['web']);
+    await db.upsert(stateRow(ws, 'web', 'main', 'FAILED', daysAgo(1)));
+  };
+  const client = () => ({ listRepoSlugs: async () => [], listHooks: async () => [], listBranches: async () => [] });
+  await withSyncedDb(seed, client, (rows) => assert.deepEqual(rows, ['web/main:FAILED']));
+});
