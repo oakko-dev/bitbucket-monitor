@@ -15,6 +15,7 @@ Deploy status dashboard for a Bitbucket Cloud workspace. A commit-status webhook
    - `CRON_SECRET` (Vercel only): Vercel Cron sends it to `/api/reconcile`. The Sync button does not use it
    - `RECONCILE_BUDGET_MS` (default 40000 on Vercel, no limit elsewhere): a sync stops starting new repos after this long and resumes after the last repo done on the next run
    - `PORT` (default 3000), `RECONCILE_INTERVAL_MS` (default 600000)
+   - A number setting left blank keeps its default. One that is not a number stops startup with an error naming it
 3. For each repo, add a webhook under Repository settings > Webhooks:
    - URL: `https://<host>/webhooks/bitbucket/<WEBHOOK_PATH_SECRET>`
    - Triggers: Commit status created, Commit status updated
@@ -87,7 +88,7 @@ The page lists every repo in the workspace. A repo with no pipeline run shows "N
 - **Deleted branches and repos.** A sync removes a branch from the page once Bitbucket no longer lists it, and removes a repo once it leaves the workspace. An empty repo list is treated as an error and removes nothing. Their history stays in the database.
 - **Alerts.** Set `SLACK_WEBHOOK_URL` to a Slack incoming webhook. A message posts when a branch changes to FAILED from another state. A repeat FAILED does not post again.
 - **History.** Click a repo name on the page to see its last 20 recorded state changes. Only changes that were applied are recorded.
-- **Rejected webhooks.** A delivery with a wrong path or signature returns 403 or 401. The page shows the most recent rejection and its reason, so a misconfigured webhook is visible.
+- **Rejected webhooks.** A delivery with a wrong path, a wrong signature, or a repo from another workspace returns 403 or 401. The page shows a recent rejection and its reason, so a misconfigured webhook is visible. Each server instance records at most one rejection a minute.
 
 ## Repo filter
 
