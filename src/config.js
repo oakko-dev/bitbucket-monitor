@@ -13,7 +13,8 @@ function number(name, fallback, { min = 0, max = Infinity } = {}) {
   if (!raw?.trim()) return fallback;
   const value = Number(raw);
   if (!Number.isFinite(value) || value < min || value > max) {
-    console.error(`Env var ${name} must be a number from ${min} to ${max}, got "${raw}"`);
+    const range = max === Infinity ? `of at least ${min}` : `from ${min} to ${max}`;
+    console.error(`Env var ${name} must be a number ${range}, got "${raw}"`);
     process.exit(1);
   }
   return value;

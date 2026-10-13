@@ -14,8 +14,8 @@ Deploy status dashboard for a Bitbucket Cloud workspace. A commit-status webhook
    - `DASHBOARD_USERNAME` (default `admin`) and `DASHBOARD_PASSWORD` (required): the dashboard login. Generate the password with `openssl rand -hex 24`. Changing either signs everyone out
    - `CRON_SECRET` (Vercel only): Vercel Cron sends it to `/api/reconcile`. The Sync button does not use it
    - `RECONCILE_BUDGET_MS` (default 40000 on Vercel, no limit elsewhere): a sync stops starting new repos after this long and resumes after the last repo done on the next run
-   - `PORT` (default 3000), `RECONCILE_INTERVAL_MS` (default 600000)
-   - A number setting left blank keeps its default. One that is not a number stops startup with an error naming it
+   - `PORT` (default 3000), `RECONCILE_INTERVAL_MS` (default 600000, from 1000 to 2147483647)
+   - A number setting left blank keeps its default. One that is not a number, or is out of range, stops startup with an error naming it
 3. For each repo, add a webhook under Repository settings > Webhooks:
    - URL: `https://<host>/webhooks/bitbucket/<WEBHOOK_PATH_SECRET>`
    - Triggers: Commit status created, Commit status updated
