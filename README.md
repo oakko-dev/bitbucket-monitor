@@ -84,7 +84,7 @@ The page lists every repo in the workspace. A repo with no pipeline run shows "N
 ## Alerts, history, and branches
 
 - **Branches.** Each sync checks every branch that had a commit in the last `RECENT_BRANCH_DAYS` (default 30). Older branches are skipped to keep the sync within the time limit, except a branch the page shows as running, which is checked until it finishes.
-- **Deleted branches and repos.** A sync removes a branch from the page once Bitbucket no longer lists it, and removes a repo once it leaves the workspace. Their history stays in the database.
+- **Deleted branches and repos.** A sync removes a branch from the page once Bitbucket no longer lists it, and removes a repo once it leaves the workspace. An empty repo list is treated as an error and removes nothing. Their history stays in the database.
 - **Alerts.** Set `SLACK_WEBHOOK_URL` to a Slack incoming webhook. A message posts when a branch changes to FAILED from another state. A repeat FAILED does not post again.
 - **History.** Click a repo name on the page to see its last 20 recorded state changes. Only changes that were applied are recorded.
 - **Rejected webhooks.** A delivery with a wrong path or signature returns 403 or 401. The page shows the most recent rejection and its reason, so a misconfigured webhook is visible.
