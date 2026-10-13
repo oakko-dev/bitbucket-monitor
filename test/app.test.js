@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createApp } from '../src/routes.js';
+import { buildApp, createApp } from '../src/routes.js';
 
 const PIPELINE_FAILED = {
   uuid: '{p1}', target: { ref_name: 'main', commit: { hash: 'abc' } }, created_on: '2026-10-10T10:00:00Z',
@@ -182,4 +182,75 @@ test('a webhook with the wrong path secret is rejected', async () => {
     const res = await fetch(`${s.base}/webhooks/bitbucket/nope`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     assert.equal(res.status, 403);
   } finally { await s.close(); }
+});
+
+const postStatus = (base, body, opts = {}) => fetch(`${base}/webhooks/bitbucket/path`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', 'X-Event-Key': 'repo:commit_status_updated' },
+  body: JSON.stringify(body),
+  ...opts,
+});
+
+test('a flood of rejected webhooks writes the rejection at most once a minute', async () => {
+  const writes = [];
+  let clock = 0;
+  const s = await serve({
+    db: { setMeta: async (key) => writes.push(key) },
+    now: () => clock,
+  });
+  try {
+    const bad = () => fetch(`${s.base}/webhooks/bitbucket/nope`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    for (let i = 0; i < 5; i++) assert.equal((await bad()).status, 403);
+    assert.equal(writes.length, 2);
+    clock += 60_000;
+    assert.equal((await bad()).status, 403);
+    assert.equal(writes.length, 4);
+  } finally { await s.close(); }
+});
+
+test('a webhook from another workspace is rejected and records nothing', async () => {
+  const reasons = [];
+  const s = await serve({
+    db: { addRepos: async () => {}, setRepoWebhook: async () => {}, setMeta: async (key, value) => { if (key === 'last_rejected_reason') reasons.push(value); } },
+  });
+  try {
+    const res = await postStatus(s.base, { ...statusEvent, repository: { full_name: 'someone-else/web' } });
+    assert.equal(res.status, 403);
+    assert.deepEqual(s.recorded, []);
+    assert.deepEqual(reasons, ['delivery is for another workspace']);
+  } finally { await s.close(); }
+});
+
+test('a webhook whose workspace differs only in case is stored under the configured workspace', async () => {
+  const added = [];
+  const s = await serve({
+    db: { addRepos: async (ws, slugs) => added.push(`${ws}/${slugs}`), setRepoWebhook: async () => {}, setMeta: async () => {} },
+  });
+  try {
+    const res = await postStatus(s.base, { ...statusEvent, repository: { full_name: 'ACME/web' } });
+    assert.equal(res.status, 200);
+    assert.deepEqual(added, ['acme/web']);
+    assert.equal(s.recorded[0].workspace, 'acme');
+  } finally { await s.close(); }
+});
+
+test('a rate-limited webhook answers 503 at once instead of waiting out Retry-After', async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => (String(url).startsWith('https://api.bitbucket.org/')
+    ? new Response('', { status: 429, headers: { 'retry-after': '2' } })
+    : realFetch(url, opts));
+  const db = { addRepos: async () => {}, setRepoWebhook: async () => {}, setMeta: async () => {}, getMeta: async () => null };
+  const app = buildApp({
+    accessToken: 't', reconcileBudgetMs: 0, workspace: 'acme', webhookPathSecret: 'path', webhookSecret: null,
+    dashboardUsername: 'ops', dashboardPassword: 'pw', recentBranchDays: 30, slackWebhookUrl: null, cronSecret: null,
+  }, db);
+  globalThis.fetch = realFetch;
+  const server = await new Promise((resolve) => { const srv = app.listen(0, () => resolve(srv)); });
+  try {
+    const res = await postStatus(`http://127.0.0.1:${server.address().port}`, statusEvent, { signal: AbortSignal.timeout(1000) });
+    assert.equal(res.status, 503);
+  } finally {
+    server.closeAllConnections();
+    await new Promise((r) => server.close(r));
+  }
 });
