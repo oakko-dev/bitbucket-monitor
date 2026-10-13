@@ -1,6 +1,10 @@
 import pg from 'pg';
 
+// CREATE TABLE IF NOT EXISTS is not safe to run concurrently on an empty database, and every cold start runs this.
+// The statements share one implicit transaction, so the lock holds until the last one is done.
 const SCHEMA = `
+  SELECT pg_advisory_xact_lock(hashtext('bitbucket-monitor schema'));
+
   CREATE TABLE IF NOT EXISTS repos (
     workspace   text    NOT NULL,
     repo_slug   text    NOT NULL,
